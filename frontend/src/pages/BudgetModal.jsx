@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { X, Plus, Search, Trash2, Check, LayoutGrid, PackagePlus, PlusCircle, Pencil } from 'lucide-react';
 import { maskCurrency, parseCurrency } from '../utils/masks';
+import { createPortal } from 'react-dom';
 
 const BudgetModal = ({ proposal, onClose, onSave }) => {
     const [products, setProducts] = useState([]);
@@ -14,12 +15,15 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [editingItemId, setEditingItemId] = useState(null);
     const [newItemName, setNewItemName] = useState('');
+    const [newItemDescription, setNewItemDescription] = useState('');
 
     // Products Search & Custom Price
     const [search, setSearch] = useState('');
     const [quantityInput, setQuantityInput] = useState({});
     const [customPriceInput, setCustomPriceInput] = useState({});
     const [editingPriceId, setEditingPriceId] = useState(null);
+    const [editingQtyId, setEditingQtyId] = useState(null);
+    const [customQtyInput, setCustomQtyInput] = useState({});
 
     // New Product Modal
     const [showProductModal, setShowProductModal] = useState(false);
@@ -49,6 +53,7 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
     const handleOpenCreateModal = () => {
         setEditingItemId(null);
         setNewItemName('');
+        setNewItemDescription('');
         setShowCreateModal(true);
     };
 
@@ -56,6 +61,15 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
         e.stopPropagation();
         setEditingItemId(item.id);
         setNewItemName(item.name);
+        
+        const mdfProducts = item.products.filter(sp => sp.product.name.toLowerCase().includes('mdf'));
+        let defaultDesc = item.description || '';
+        if (!defaultDesc && mdfProducts.length > 0) {
+            const mdfNames = mdfProducts.map(sp => sp.product.name).join(', ');
+            defaultDesc = `Mdfs utilizados neste projeto: ${mdfNames}`;
+        }
+        setNewItemDescription(defaultDesc);
+        
         setShowCreateModal(true);
     };
 
@@ -65,13 +79,14 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
         if (editingItemId) {
             // Edit existing
             setBudgetItems(budgetItems.map(item => 
-                item.id === editingItemId ? { ...item, name: newItemName } : item
+                item.id === editingItemId ? { ...item, name: newItemName, description: newItemDescription } : item
             ));
         } else {
             // Create new
             const newItem = {
                 id: Date.now().toString(),
                 name: newItemName,
+                description: newItemDescription,
                 products: []
             };
             setBudgetItems([...budgetItems, newItem]);
@@ -80,6 +95,7 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
         
         setShowCreateModal(false);
         setNewItemName('');
+        setNewItemDescription('');
         setEditingItemId(null);
     };
 
@@ -140,6 +156,31 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
         setBudgetItems(updatedItems);
     };
 
+    const handleUpdateQuantity = (productId) => {
+        const qty = parseFloat(customQtyInput[productId]);
+        if (isNaN(qty) || qty <= 0) {
+            setEditingQtyId(null);
+            return;
+        }
+
+        const updatedItems = budgetItems.map(item => {
+            if (item.id === activeItemId) {
+                return {
+                    ...item,
+                    products: item.products.map(sp => {
+                        if (sp.product.id === productId) {
+                            return { ...sp, quantity: qty, total: qty * sp.product.value };
+                        }
+                        return sp;
+                    })
+                };
+            }
+            return item;
+        });
+        setBudgetItems(updatedItems);
+        setEditingQtyId(null);
+    };
+
     const handleDeleteItem = (e, id) => {
         e.stopPropagation(); // prevent selecting the item
         if (confirm('Deseja excluir este item e todos os seus produtos?')) {
@@ -184,7 +225,7 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
         }
     };
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '1200px', width: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', padding: '1.5rem', position: 'relative' }}>
                 
@@ -198,6 +239,15 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
                             <div style={{ marginBottom: '1.5rem' }}>
                                 <label>Nome (Ex: Cozinha, Banheiro) *</label>
                                 <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Nome do item..." />
+                            </div>
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <label>Descrição (Ficará visível na impressão)</label>
+                                <textarea 
+                                    value={newItemDescription} 
+                                    onChange={e => setNewItemDescription(e.target.value)} 
+                                    placeholder="Ex: Mdfs utilizados neste projeto..."
+                                    style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.02)', color: '#fff', outline: 'none', resize: 'vertical' }}
+                                />
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                                 <button onClick={() => setShowCreateModal(false)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Cancelar</button>
@@ -220,7 +270,7 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
                                 <div style={{ flex: 1 }}>
                                     <label>Unidade</label>
                                     <select value={newProduct.unit} onChange={e => setNewProduct({...newProduct, unit: e.target.value})}>
-                                        {['UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'CHP'].map(u => <option key={u} value={u}>{u}</option>)}
+                                        {['UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'CHP', 'PC'].map(u => <option key={u} value={u}>{u}</option>)}
                                     </select>
                                 </div>
                                 <div style={{ flex: 1 }}>
@@ -373,7 +423,31 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
                                 <div key={sp.product.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', borderBottom: '1px solid var(--border)' }}>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{sp.product.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sp.quantity} {sp.product.unit} x {maskCurrency(sp.product.value)} = <span style={{color: '#10b981', fontWeight: 'bold'}}>{maskCurrency(sp.total)}</span></div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                            {editingQtyId === sp.product.id ? (
+                                                <input 
+                                                    type="number"
+                                                    min="0.1"
+                                                    step="any"
+                                                    value={customQtyInput[sp.product.id] || ''}
+                                                    onChange={e => setCustomQtyInput({...customQtyInput, [sp.product.id]: e.target.value})}
+                                                    onBlur={() => handleUpdateQuantity(sp.product.id)}
+                                                    onKeyDown={e => e.key === 'Enter' && handleUpdateQuantity(sp.product.id)}
+                                                    autoFocus
+                                                    style={{ width: '60px', padding: '2px 4px', fontSize: '0.75rem', marginBottom: 0 }}
+                                                />
+                                            ) : (
+                                                <>
+                                                    <span>{sp.quantity}</span>
+                                                    <button onClick={() => {
+                                                        setCustomQtyInput({...customQtyInput, [sp.product.id]: sp.quantity});
+                                                        setEditingQtyId(sp.product.id);
+                                                    }} style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer', display: 'flex' }}><Pencil size={12} /></button>
+                                                </>
+                                            )}
+                                            <span>{sp.product.unit} x {maskCurrency(sp.product.value)} = </span>
+                                            <span style={{color: '#10b981', fontWeight: 'bold'}}>{maskCurrency(sp.total)}</span>
+                                        </div>
                                     </div>
                                     <button onClick={() => handleRemoveProduct(sp.product.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}>
                                         <Trash2 size={18} />
@@ -392,7 +466,8 @@ const BudgetModal = ({ proposal, onClose, onSave }) => {
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

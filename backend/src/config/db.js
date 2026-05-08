@@ -143,7 +143,7 @@ async function initializeDatabase(db) {
             tenant_id INTEGER NOT NULL,
             manufacturer_id INTEGER,
             name TEXT NOT NULL,
-            unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA')),
+            unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC')),
             value DECIMAL(10, 2) DEFAULT 0,
             photo TEXT,
             status INTEGER DEFAULT 1, -- 1: Ativo, 0: Desativado
@@ -155,6 +155,37 @@ async function initializeDatabase(db) {
     `);
 
     // Migração removida para evitar lock no banco de dados.
+
+    // Migração: Atualizar CHECK constraint da tabela products para incluir 'PC'
+    try {
+        await db.exec(`
+            BEGIN TRANSACTION;
+            CREATE TABLE products_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL,
+                manufacturer_id INTEGER,
+                name TEXT NOT NULL,
+                unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC')),
+                value DECIMAL(10, 2) DEFAULT 0,
+                photo TEXT,
+                status INTEGER DEFAULT 1,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                FOREIGN KEY (manufacturer_id) REFERENCES manufacturers(id)
+            );
+            
+            INSERT INTO products_new (id, tenant_id, manufacturer_id, name, unit, value, photo, status, updated_at, created_at)
+            SELECT id, tenant_id, manufacturer_id, name, unit, value, photo, status, updated_at, created_at FROM products;
+            
+            DROP TABLE products;
+            ALTER TABLE products_new RENAME TO products;
+            COMMIT;
+        `);
+        console.log('[MIGRAÇÃO] Tabela products atualizada com sucesso (unidade PC).');
+    } catch (e) {
+        try { await db.exec('ROLLBACK;'); } catch(err) {}
+    }
 
     // Migração: Atualizar CHECK constraint da tabela proposals
     try {

@@ -129,7 +129,7 @@ const ProductionOrders = () => {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+            <div className="scrollable-content" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
                 {loading ? (
                     <p>Carregando ordens...</p>
                 ) : orders.length === 0 ? (

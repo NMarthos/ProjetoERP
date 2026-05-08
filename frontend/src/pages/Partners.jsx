@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Plus, Search, User, Mail, Phone, MapPin, Edit3, Trash2, X, Check, Filter, UserCheck } from 'lucide-react';
 import { maskPhone, maskDocument } from '../utils/masks';
+import { createPortal } from 'react-dom';
 
 // ── Componente de Modal (Popup) ──────────────────────────────────────────────────
 const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onSave }) => {
@@ -89,7 +90,7 @@ const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onS
         setSaving(false);
     };
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="glass card modal-content" style={{ maxWidth: '600px' }}>
                 <style>{`
@@ -208,7 +209,8 @@ const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onS
                     </div>
                 </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -269,7 +271,7 @@ const Partners = () => {
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '3rem' }}>Carregando...</div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                <div className="scrollable-content" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
                     {filtered.map(p => (
                         <div key={p.id} className="glass card" style={{ padding: '1.5rem', zIndex: 1 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>

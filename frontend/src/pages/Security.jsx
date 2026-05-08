@@ -111,7 +111,7 @@ const Security = () => {
                     )}
 
                     {loading ? <p>Carregando...</p> : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div className="scrollable-content" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             {tenants.map(t => (
                                 <div 
                                     key={t.id} 
@@ -201,7 +201,7 @@ const Security = () => {
                                 </form>
                             )}
 
-                            <div style={{ display: 'grid', gap: '10px' }}>
+                            <div className="scrollable-content" style={{ display: 'grid', gap: '10px' }}>
                                 {filteredUsers.length === 0 ? (
                                     <p style={{ color: 'var(--text-muted)' }}>Nenhum usuário cadastrado nesta conta.</p>
                                 ) : (

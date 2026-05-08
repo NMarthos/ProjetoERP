@@ -3,6 +3,7 @@ import api from '../services/api';
 import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing } from 'lucide-react';
 import { maskCurrency, parseCurrency } from '../utils/masks';
 import BudgetModal from './BudgetModal';
+import { createPortal } from 'react-dom';
 
 const statusConfig = {
     ABERTO:    { label: 'Aberto',    color: '#eab308', bg: 'rgba(234,179,8,0.15)',   icon: Clock },
@@ -96,7 +97,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
     const isProjeto = proposal && proposal.phase !== '1-Comercial';
     const title = proposal ? (isProjeto ? 'Detalhes do Projeto' : 'Editar Proposta') : 'Nova Proposta';
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '540px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
@@ -187,7 +188,8 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                     </div>
                 )}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -257,7 +259,7 @@ const EventModal = ({ proposal, onClose }) => {
         });
     };
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '600px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
@@ -316,7 +318,8 @@ const EventModal = ({ proposal, onClose }) => {
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -444,7 +447,7 @@ const Proposals = () => {
                 {loading ? (
                     <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Carregando...</div>
                 ) : (
-                    <div style={{ overflowX: 'auto' }}>
+                    <div className="scrollable-content" style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>

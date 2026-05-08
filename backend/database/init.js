@@ -31,6 +31,20 @@ async function initDb() {
         )
     `);
 
+    // Products (Produtos e Serviços)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            manufacturer_id INTEGER,
+            name TEXT NOT NULL,
+            unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC')),
+            price DECIMAL(10, 2),
+            active INTEGER DEFAULT 1,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    `);
+
     // RG03: Usuários vinculados a empresa
     await db.exec(`
         CREATE TABLE IF NOT EXISTS users (

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { Package, Truck, Plus, Search, Edit3, Trash2, X, Check, AlertCircle, Camera, Calendar, Upload, Loader2 } from 'lucide-react';
 import { maskPhone, maskCurrency, parseCurrency } from '../utils/masks';
+import { createPortal } from 'react-dom';
 
 const unitDomain = {
     CHP: 'Chapa',
@@ -12,7 +13,8 @@ const unitDomain = {
     CXA: 'Caixa',
     PAR: 'Par',
     H:   'Hora',
-    DIA: 'Dia'
+    DIA: 'Dia',
+    PC:  'Peça'
 };
 
 // ── Funções de Formatação ──────────────────────────────────────────────────
@@ -38,7 +40,7 @@ const ManufacturerModal = ({ manufacturer, onClose, onSave }) => {
         setSaving(false);
     };
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="glass card modal-content" style={{ maxWidth: '400px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
@@ -57,7 +59,8 @@ const ManufacturerModal = ({ manufacturer, onClose, onSave }) => {
                     </button>
                 </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -79,7 +82,7 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
     useEffect(() => {
         if (product) {
             setForm({...product, manufacturer_id: product.manufacturer_id || ''});
-            setDisplayValue(maskCurrency(product.value * 100));
+            setDisplayValue(maskCurrency(product.value));
         }
     }, [product]);
 
@@ -122,7 +125,7 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
         setSaving(false);
     };
 
-    return (
+    return createPortal(
         <div className="modal-overlay">
             <div className="glass card modal-content" style={{ maxWidth: '500px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
@@ -195,7 +198,8 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                     </button>
                 </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -272,7 +276,7 @@ const Products = () => {
                 </div>
 
                 {activeTab === 'products' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                    <div className="custom-scrollbar" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', paddingRight: '10px' }}>
                         {filteredProducts.map(p => (
                             <div key={p.id} className="glass card" style={{ padding: '1.5rem', zIndex: 1 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
@@ -315,7 +319,7 @@ const Products = () => {
                         ))}
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                    <div className="custom-scrollbar" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', paddingRight: '10px' }}>
                         {filteredManufacturers.map(m => (
                             <div key={m.id} className="glass card" style={{ padding: '1.5rem', zIndex: 1 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
