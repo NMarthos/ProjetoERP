@@ -196,6 +196,7 @@ async function initializeDatabase(db) {
         'ALTER TABLE proposals ADD COLUMN user_id INTEGER',
         'ALTER TABLE proposals ADD COLUMN phase TEXT DEFAULT "1-Comercial"',
         'ALTER TABLE proposals ADD COLUMN phase_date DATETIME DEFAULT CURRENT_TIMESTAMP',
+        'ALTER TABLE proposals ADD COLUMN budget_data TEXT',
         'ALTER TABLE production_orders ADD COLUMN priority TEXT DEFAULT "MEDIA"',
         'ALTER TABLE production_orders ADD COLUMN start_date DATETIME',
         'ALTER TABLE production_orders ADD COLUMN end_date DATETIME',

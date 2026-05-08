@@ -117,22 +117,46 @@ const Sidebar = ({ user, onLogout, setView, currentView }) => {
                 })}
             </nav>
 
-            <div 
-                onClick={onLogout}
-                style={{ 
-                    padding: '12px 16px', 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '12px',
-                    color: '#ef4444',
-                    fontWeight: '600',
-                    borderTop: '1px solid var(--border)',
-                    marginTop: '20px'
-                }}
-            >
-                <LogOut size={20} />
-                <span>Sair do Sistema</span>
+            <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                        width: '38px', height: '38px', borderRadius: '50%', 
+                        background: 'linear-gradient(135deg, var(--primary), #8b5cf6)',
+                        color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 'bold', fontSize: '1.1rem', textTransform: 'uppercase',
+                        boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)'
+                    }}>
+                        {user?.name ? user.name.charAt(0) : 'U'}
+                    </div>
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {user?.name || 'Usuário'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {user?.role === 'ADMIN' ? 'Administrador' : (user?.role || 'Usuário')}
+                        </div>
+                    </div>
+                </div>
+
+                <div 
+                    onClick={onLogout}
+                    style={{ 
+                        padding: '12px 16px', 
+                        cursor: 'pointer', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '12px',
+                        color: '#ef4444',
+                        fontWeight: '600',
+                        borderRadius: '8px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                    <LogOut size={20} />
+                    <span>Sair do Sistema</span>
+                </div>
             </div>
         </aside>
     );

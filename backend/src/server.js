@@ -320,7 +320,7 @@ async function start() {
         });
 
         app.put('/api/proposals/:id', authMiddleware, async (req, res) => {
-            const { description, value, status, partner_id, phase } = req.body;
+            const { description, value, status, partner_id, phase, budget_data } = req.body;
             try {
                 const old = await db.get('SELECT phase FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
                 const currentPhase = old ? old.phase : '1-Comercial';
@@ -328,6 +328,11 @@ async function start() {
                 let query = 'UPDATE proposals SET description=?, value=?, status=?, partner_id=?';
                 let params = [description, value, status, partner_id];
                 
+                if (budget_data !== undefined) {
+                    query += ', budget_data=?';
+                    params.push(budget_data);
+                }
+
                 if (phase && phase !== currentPhase) {
                     query += ', phase=?, phase_date=CURRENT_TIMESTAMP';
                     params.push(phase);

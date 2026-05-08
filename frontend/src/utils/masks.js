@@ -20,6 +20,9 @@ export const maskCEP = (value) => {
 
 export const maskCurrency = (value) => {
     if (value === undefined || value === null) return '';
+    if (typeof value === 'number') {
+        return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
     let v = value.toString().replace(/\D/g, '');
     if (v === '') return '';
     v = (parseInt(v) / 100).toFixed(2);

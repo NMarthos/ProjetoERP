@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing } from 'lucide-react';
 import { maskCurrency, parseCurrency } from '../utils/masks';
+import BudgetModal from './BudgetModal';
 
 const statusConfig = {
     ABERTO:    { label: 'Aberto',    color: '#eab308', bg: 'rgba(234,179,8,0.15)',   icon: Clock },
@@ -158,16 +159,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                             style={{ width: '100%', minHeight: '100px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.25)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '0.9rem', resize: 'vertical', outline: 'none', marginBottom: '1rem' }}
                         />
 
-                        {proposal && (
-                            <div style={{ marginBottom: '1rem' }}>
-                                <label>Status Comercial</label>
-                                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                                    <option value="ABERTO">Aberto / Em Negociação</option>
-                                    <option value="APROVADO">Aprovado</option>
-                                    <option value="REJEITADO">Rejeitado / Perdido</option>
-                                </select>
-                            </div>
-                        )}
+
 
                         <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                             <button type="button" onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontWeight: '600' }}>Cancelar</button>
@@ -203,13 +195,26 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
 const EventModal = ({ proposal, onClose }) => {
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [form, setForm] = useState({ id: null, event_date: '', event_time: '', description: '', monitor: false });
+    const [form, setForm] = useState({ 
+        id: null, 
+        event_date: new Date().toISOString().split('T')[0], 
+        event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), 
+        description: '', 
+        monitor: false 
+    });
     const [saving, setSaving] = useState(false);
 
     const loadEvents = () => {
         setLoading(true);
         api.get(`/proposals/${proposal.id}/events`)
-            .then(r => setEvents(r.data))
+            .then(r => {
+                const sorted = r.data.sort((a, b) => {
+                    const dateA = new Date(`${a.event_date}T${a.event_time || '00:00'}`);
+                    const dateB = new Date(`${b.event_date}T${b.event_time || '00:00'}`);
+                    return dateB - dateA;
+                });
+                setEvents(sorted);
+            })
             .catch(() => alert('Erro ao carregar eventos'))
             .finally(() => setLoading(false));
     };
@@ -227,7 +232,13 @@ const EventModal = ({ proposal, onClose }) => {
             } else {
                 await api.post(`/proposals/${proposal.id}/events`, form);
             }
-            setForm({ id: null, event_date: '', event_time: '', description: '', monitor: false });
+            setForm({ 
+                id: null, 
+                event_date: new Date().toISOString().split('T')[0], 
+                event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), 
+                description: '', 
+                monitor: false 
+            });
             loadEvents();
         } catch (err) {
             alert('Erro ao salvar evento');
@@ -281,7 +292,7 @@ const EventModal = ({ proposal, onClose }) => {
                             </span>
                         </label>
                         <div style={{ display: 'flex', gap: '10px' }}>
-                            {form.id && <button type="button" onClick={() => setForm({ id: null, event_date: '', event_time: '', description: '', monitor: false })} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Cancelar</button>}
+                            {form.id && <button type="button" onClick={() => setForm({ id: null, event_date: new Date().toISOString().split('T')[0], event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), description: '', monitor: false })} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Cancelar</button>}
                             <button type="submit" disabled={saving} className="btn-premium" style={{ padding: '8px 16px' }}>{saving ? '...' : (form.id ? 'Atualizar' : 'Adicionar')}</button>
                         </div>
                     </div>
@@ -316,6 +327,7 @@ const Proposals = () => {
     const [search, setSearch] = useState('');
     const [modalData, setModalData] = useState({ show: false, proposal: null });
     const [eventModalData, setEventModalData] = useState({ show: false, proposal: null });
+    const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
     const [error, setError] = useState('');
 
     const fetchProposals = async () => {
@@ -335,6 +347,7 @@ const Proposals = () => {
 
     const handleSave = () => { setModalData({ show: false, proposal: null }); fetchProposals(); };
     const handleEventSave = () => { setEventModalData({ show: false, proposal: null }); fetchProposals(); };
+    const handleBudgetSave = () => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); };
 
     const handleDelete = async (id) => {
         if (!confirm('Deseja realmente excluir este orçamento?')) return;
@@ -343,6 +356,21 @@ const Proposals = () => {
             fetchProposals();
         } catch (err) {
             alert(err.response?.data?.error || 'Erro ao excluir orçamento.');
+        }
+    };
+
+    const handleStatusChange = async (proposal, newStatus) => {
+        if (!confirm(`Deseja alterar o status para ${newStatus === 'APROVADO' ? 'Aprovado' : 'Declinado'}?`)) return;
+        try {
+            await api.put(`/proposals/${proposal.id}`, {
+                partner_id: proposal.partner_id,
+                description: proposal.description,
+                status: newStatus,
+                phase: proposal.phase
+            });
+            fetchProposals();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Erro ao alterar status.');
         }
     };
 
@@ -367,6 +395,14 @@ const Proposals = () => {
                 <EventModal 
                     proposal={eventModalData.proposal} 
                     onClose={handleEventSave} 
+                />
+            )}
+
+            {budgetModalData.show && (
+                <BudgetModal 
+                    proposal={budgetModalData.proposal} 
+                    onClose={() => setBudgetModalData({ show: false, proposal: null })} 
+                    onSave={handleBudgetSave} 
                 />
             )}
 
@@ -412,7 +448,7 @@ const Proposals = () => {
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                                    {['Ref. OP', 'Cliente', 'Projeto', 'Autor', 'Fase', 'Status', 'Ações'].map(h => (
+                                    {['Ref. OP', 'Cliente', 'Projeto', 'Autor', 'Valor', 'Fase', 'Status', 'Ações'].map(h => (
                                         <th key={h} style={{ padding: '12px 16px', color: 'var(--text-muted)', fontWeight: '600', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                                     ))}
                                 </tr>
@@ -436,6 +472,9 @@ const Proposals = () => {
                                                         {p.creator_name || 'Sistema'}
                                                     </div>
                                                 </td>
+                                                <td style={{ padding: '14px 16px', fontWeight: 'bold', color: '#10b981' }}>
+                                                    {maskCurrency(p.value || 0)}
+                                                </td>
                                                 <td style={{ padding: '14px 16px' }}>
                                                     <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text)', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)' }}>
                                                         {p.phase || '1-Comercial'}
@@ -446,8 +485,15 @@ const Proposals = () => {
                                                 </td>
                                                 <td style={{ padding: '14px 16px' }}>
                                                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title="Ver Orçamento" style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
                                                         {p.has_monitored_event > 0 && (
                                                             <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Ver Evento Monitorado" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', animation: 'pulse 2s infinite' }}><BellRing size={18} /></button>
+                                                        )}
+                                                        {p.status === 'ABERTO' && (
+                                                            <>
+                                                                <button onClick={() => handleStatusChange(p, 'APROVADO')} title="Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
+                                                                <button onClick={() => handleStatusChange(p, 'REJEITADO')} title="Declinar" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><XCircle size={18} /></button>
+                                                            </>
                                                         )}
                                                         <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
                                                         <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
