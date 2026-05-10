@@ -265,7 +265,10 @@ async function initializeDatabase(db) {
         { table: 'proposals', column: 'payment_methods', type: 'TEXT' },
         { table: 'proposals', column: 'payment_notes', type: 'TEXT' },
         { table: 'proposals', column: 'pricing_snapshot', type: 'TEXT' },
-        { table: 'payment_conditions', column: 'finance_cost_percentage', type: 'REAL DEFAULT 0' }
+        { table: 'payment_conditions', column: 'finance_cost_percentage', type: 'REAL DEFAULT 0' },
+        { table: 'proposal_events', column: 'title', type: 'TEXT' },
+        { table: 'proposal_events', column: 'type', type: 'TEXT DEFAULT "Anotacao"' },
+        { table: 'proposal_events', column: 'event_status', type: 'TEXT DEFAULT "ABERTO"' }
     ];
 
     for (const m of migrations) {
@@ -280,6 +283,19 @@ async function initializeDatabase(db) {
             console.error(`[MIGRAÇÃO] Erro ao adicionar coluna ${m.column} à tabela ${m.table}:`, e.message);
         }
     }
+
+    // Event Attachments Table
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS event_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            event_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            type TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
     
     // History Table
     await db.exec(`

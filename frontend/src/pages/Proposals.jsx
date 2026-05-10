@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip } from 'lucide-react';
+import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 
@@ -111,29 +111,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                         />
                     </div>
 
-                    {proposal && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                            <div>
-                                <label>Status</label>
-                                <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}>
-                                    <option value="ABERTO">Aberto</option>
-                                    <option value="APROVADO">Aprovado</option>
-                                    <option value="REJEITADO">Rejeitado</option>
-                                    <option value="ARQUIVADO">Arquivado</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label>Fase Atual</label>
-                                <select value={form.phase} onChange={e => setForm({ ...form, phase: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}>
-                                    <option value="1-Comercial">1-Comercial</option>
-                                    <option value="2-Fábrica/Técnica">2-Fábrica/Técnica</option>
-                                    <option value="3-Produção">3-Produção</option>
-                                    <option value="4-Montagem">4-Montagem</option>
-                                    <option value="5-Finalizado">5-Finalizado</option>
-                                </select>
-                            </div>
-                        </div>
-                    )}
+
 
                     {error && <div style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</div>}
 
@@ -148,11 +126,154 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
     );
 };
 
-const EventModal = ({ proposal, onClose, onSave }) => {
+// ── Modal de Anexos da Proposta ──────────────────────────────────────────────
+
+const AttachmentsModal = ({ proposal, onClose }) => {
+    const [attachments, setAttachments] = useState([]);
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState('');
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        fetchAttachments();
+    }, [proposal.id]);
+
+    const fetchAttachments = async () => {
+        try {
+            const r = await api.get(`/proposals/${proposal.id}/attachments`);
+            setAttachments(r.data);
+        } catch (e) { console.error(e); }
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setUploading(true);
+        setError('');
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            await api.post(`/proposals/${proposal.id}/attachments`, {
+                name: file.name,
+                url: uploadRes.data.url,
+                type: file.type
+            });
+            fetchAttachments();
+        } catch (err) {
+            setError('Erro ao enviar arquivo: ' + (err.response?.data?.error || err.message));
+        }
+        setUploading(false);
+        e.target.value = '';
+    };
+
+    const handleDelete = async (id) => {
+        if (!window.confirm('Remover este anexo?')) return;
+        try {
+            await api.delete(`/attachments/${id}`);
+            fetchAttachments();
+        } catch (err) {
+            setError('Erro ao remover anexo');
+        }
+    };
+
+    const isImage = (att) =>
+        (att.type && att.type.startsWith('image')) ||
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(att.url || att.name || '');
+
+    return createPortal(
+        <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                    <div>
+                        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Paperclip size={22} color="var(--primary)" /> Anexos da Proposta
+                        </h2>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>#{proposal.id} — {proposal.description}</div>
+                    </div>
+                    <button onClick={onClose} className="btn-icon"><X /></button>
+                </div>
+
+                {/* Upload Area */}
+                <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                        border: '2px dashed var(--border)',
+                        borderRadius: '12px',
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        marginBottom: '1.5rem',
+                        background: 'rgba(99,102,241,0.04)',
+                        transition: 'border-color 0.2s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                    <UploadCloud size={32} color="var(--primary)" style={{ marginBottom: '8px' }} />
+                    <div style={{ fontWeight: '700', marginBottom: '4px' }}>
+                        {uploading ? 'Enviando...' : 'Clique para anexar arquivo'}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Imagens, PDFs, documentos, etc.</div>
+                    <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileChange} disabled={uploading} />
+                </div>
+
+                {error && <div style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</div>}
+
+                {/* Attachments List */}
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {attachments.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontSize: '0.9rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                            Nenhum arquivo anexado.
+                        </div>
+                    ) : attachments.map(att => (
+                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px 14px', border: '1px solid var(--border)' }}>
+                            {isImage(att) ? (
+                                <img src={att.url} alt={att.name} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
+                            ) : (
+                                <div style={{ width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(99,102,241,0.15)', borderRadius: '6px', flexShrink: 0 }}>
+                                    <File size={22} color="var(--primary)" />
+                                </div>
+                            )}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ color: 'white', fontWeight: '600', fontSize: '0.9rem', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                    onMouseEnter={e => e.target.style.color = 'var(--primary)'}
+                                    onMouseLeave={e => e.target.style.color = 'white'}
+                                >
+                                    {att.name}
+                                </a>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{att.type || 'arquivo'}</div>
+                            </div>
+                            <button
+                                onClick={() => handleDelete(att.id)}
+                                title="Remover anexo"
+                                style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', borderRadius: '6px', flexShrink: 0 }}
+                            >
+                                <Trash size={18} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
+const EventModal = ({ proposal, onClose }) => {
     const [events, setEvents] = useState([]);
     const [history, setHistory] = useState([]);
     const [activeTab, setActiveTab] = useState('eventos');
-    const [form, setForm] = useState({ event_date: '', event_time: '', description: '', monitor: false });
+    const [form, setForm] = useState({ title: '', event_date: '', event_time: '', description: '', type: 'Anotacao', event_status: 'ABERTO', monitor: false });
+    const [saving, setSaving] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [eventAttachments, setEventAttachments] = useState([]);
+    const [uploading, setUploading] = useState(false);
+    const [cardUploadingId, setCardUploadingId] = useState(null);
+    const eventFileRef = useRef(null);
+
+    const EMPTY_FORM = { title: '', event_date: '', event_time: '', description: '', type: 'Anotacao', event_status: 'ABERTO', monitor: false };
 
     useEffect(() => {
         fetchEvents();
@@ -169,84 +290,367 @@ const EventModal = ({ proposal, onClose, onSave }) => {
         setHistory(r.data);
     };
 
-    const handleAddEvent = async (e) => {
+    const handleSaveEvent = async (e) => {
         e.preventDefault();
-        await api.post(`/proposals/${proposal.id}/events`, form);
-        setForm({ event_date: '', event_time: '', description: '', monitor: false });
+        setSaving(true);
+        if (editingId) {
+            await api.put(`/events/${editingId}`, form);
+            setEditingId(null);
+        } else {
+            await api.post(`/proposals/${proposal.id}/events`, form);
+        }
+        setForm(EMPTY_FORM);
+        await fetchEvents();
+        setSaving(false);
+    };
+
+    const handleEditEvent = (ev) => {
+        setEditingId(ev.id);
+        setEventAttachments([]);
+        setForm({
+            title: ev.title || '',
+            event_date: ev.event_date || '',
+            event_time: ev.event_time || '',
+            description: ev.description || '',
+            type: ev.type || 'Anotacao',
+            event_status: ev.event_status || 'ABERTO',
+            monitor: ev.monitor === 1,
+        });
+        api.get(`/events/${ev.id}/attachments`).then(r => setEventAttachments(r.data)).catch(() => {});
+    };
+
+    const handleCancelEdit = () => {
+        setEditingId(null);
+        setEventAttachments([]);
+        setForm(EMPTY_FORM);
+    };
+
+    const handleEventFileUpload = async (e) => {
+        const file = e.target.files[0];
+        console.log('[EDIT ATTACH] file:', file?.name, 'editingId:', editingId);
+        if (!file || !editingId) {
+            console.warn('[EDIT ATTACH] Aborted — file or editingId missing');
+            return;
+        }
+        setUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            console.log('[EDIT ATTACH] Uploading to /upload...');
+            const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            console.log('[EDIT ATTACH] Upload OK, url:', uploadRes.data.url);
+            await api.post(`/events/${editingId}/attachments`, { name: file.name, url: uploadRes.data.url, type: file.type });
+            console.log('[EDIT ATTACH] Attachment saved OK');
+            const r = await api.get(`/events/${editingId}/attachments`);
+            setEventAttachments(r.data);
+        } catch (err) {
+            console.error('[EDIT ATTACH] Error:', err?.response?.data || err.message);
+        }
+        setUploading(false);
+        e.target.value = '';
+    };
+
+    const handleDeleteEventAttachment = async (id) => {
+        if (!window.confirm('Remover este anexo?')) return;
+        await api.delete(`/event-attachments/${id}`).catch(() => {});
+        const r = await api.get(`/events/${editingId}/attachments`);
+        setEventAttachments(r.data);
+    };
+
+    const handleToggleStatus = async (ev) => {
+        const newStatus = ev.event_status === 'FECHADO' ? 'ABERTO' : 'FECHADO';
+        await api.put(`/events/${ev.id}`, {
+            ...ev, event_status: newStatus, monitor: ev.monitor === 1,
+        });
         fetchEvents();
     };
 
+    const handleToggleMonitor = async (ev) => {
+        await api.put(`/events/${ev.id}`, {
+            event_date: ev.event_date, event_time: ev.event_time,
+            title: ev.title || '', description: ev.description,
+            type: ev.type || 'Anotacao', event_status: ev.event_status || 'ABERTO',
+            monitor: ev.monitor !== 1,
+        });
+        fetchEvents();
+    };
+
+    const handleDeleteEvent = async (id) => {
+        if (!window.confirm('Remover este evento?')) return;
+        await api.delete(`/events/${id}`).catch(() => {});
+        fetchEvents();
+    };
+
+    const uploadEventAttachment = async (file, eventId) => {
+        if (!file || !eventId) return;
+        setCardUploadingId(eventId);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            await api.post(`/events/${eventId}/attachments`, {
+                name: file.name, url: uploadRes.data.url, type: file.type,
+            });
+        } catch (err) {
+            console.error('[EVENT ATTACH] Error:', err?.response?.data || err.message);
+        }
+        setCardUploadingId(null);
+    };
+
+    const tabStyle = (key) => ({
+        padding: '10px 18px', cursor: 'pointer', fontSize: '0.85rem',
+        fontWeight: activeTab === key ? '700' : '500',
+        color: activeTab === key ? 'var(--primary)' : 'var(--text-muted)',
+        borderBottom: activeTab === key ? '2px solid var(--primary)' : '2px solid transparent',
+        transition: 'all 0.15s',
+    });
+
     return createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '600px', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <div className="modal-content" style={{ maxWidth: '980px', width: '98%', maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                     <div>
-                        <h2 style={{ fontSize: '1.25rem' }}>Linha do Tempo: #{proposal.id}</h2>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{proposal.description}</div>
+                        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.4rem' }}>
+                            <CalendarPlus size={22} color="var(--primary)" /> Agenda da Proposta
+                        </h2>
+                        <p style={{ color: 'var(--text-muted)', margin: '4px 0 0', fontSize: '0.88rem' }}>#{proposal.id} — {proposal.description}</p>
                     </div>
                     <button onClick={onClose} className="btn-icon"><X /></button>
                 </div>
 
-                <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                    <div onClick={() => setActiveTab('eventos')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'eventos' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'eventos' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'eventos' ? '700' : '500' }}>Eventos & Alertas</div>
-                    <div onClick={() => setActiveTab('historico')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'historico' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'historico' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'historico' ? '700' : '500' }}>Histórico de Fases</div>
+                {/* Tabs */}
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+                    <div style={tabStyle('eventos')} onClick={() => setActiveTab('eventos')}>Eventos & Alertas</div>
+                    <div style={tabStyle('historico')} onClick={() => setActiveTab('historico')}>Histórico de Fases</div>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {activeTab === 'eventos' ? (
-                        <>
-                            <form onSubmit={handleAddEvent} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--border)' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                                    <input type="date" required value={form.event_date} onChange={e => setForm({ ...form, event_date: e.target.value })} style={{ background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px' }} />
-                                    <input type="time" required value={form.event_time} onChange={e => setForm({ ...form, event_time: e.target.value })} style={{ background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px' }} />
+                {activeTab === 'eventos' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '1.5rem', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+
+                        {/* LEFT — Form card */}
+                        <div className="glass card" style={{ border: `2px solid ${editingId ? 'var(--primary)' : 'var(--border)'}`, height: 'fit-content', transition: 'border-color 0.2s' }}>
+                            <h3 style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '1rem' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {editingId ? <Pencil size={18} color="var(--primary)" /> : <Plus size={18} color="var(--primary)" />}
+                                    {editingId ? 'Editando Evento' : 'Novo Evento'}
+                                </span>
+                                {editingId && (
+                                    <button onClick={handleCancelEdit} className="btn-icon" title="Cancelar edição" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        <X size={16} />
+                                    </button>
+                                )}
+                            </h3>
+                            <form onSubmit={handleSaveEvent} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div>
+                                    <label>Título</label>
+                                    <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ex: Reunião com cliente, Medição..." />
                                 </div>
-                                <textarea required value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Descreva o evento ou alerta..." style={{ width: '100%', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px', marginBottom: '10px', minHeight: '60px' }} />
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                                        <input type="checkbox" checked={form.monitor} onChange={e => setForm({ ...form, monitor: e.target.checked })} /> Monitorar (Exibir Alerta na Listagem)
-                                    </label>
-                                    <button type="submit" className="btn-premium" style={{ padding: '8px 20px', fontSize: '0.9rem' }}>Adicionar</button>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                    <div>
+                                        <label>Data</label>
+                                        <input type="date" value={form.event_date} onChange={e => setForm({ ...form, event_date: e.target.value })} style={{ colorScheme: 'dark' }} />
+                                    </div>
+                                    <div>
+                                        <label>Horário</label>
+                                        <input type="time" value={form.event_time} onChange={e => setForm({ ...form, event_time: e.target.value })} style={{ colorScheme: 'dark' }} />
+                                    </div>
                                 </div>
+                                <div>
+                                    <label>Descrição / Observações</label>
+                                    <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Detalhes adicionais..." style={{ minHeight: '70px', resize: 'vertical' }} />
+                                </div>
+                                {/* Situação — only in edit mode */}
+                                {editingId && (
+                                    <div>
+                                        <label>Situação</label>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            {['ABERTO', 'FECHADO'].map(s => {
+                                                const isActive = form.event_status === s;
+                                                const color = s === 'FECHADO' ? '#22c55e' : '#f59e0b';
+                                                return (
+                                                    <div
+                                                        key={s}
+                                                        onClick={() => setForm({ ...form, event_status: s })}
+                                                        style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', textAlign: 'center', fontWeight: '700', fontSize: '0.82rem', userSelect: 'none', border: `1.5px solid ${isActive ? color : 'var(--border)'}`, background: isActive ? `${color}22` : 'rgba(255,255,255,0.03)', color: isActive ? color : 'var(--text-muted)', transition: 'all 0.15s' }}
+                                                    >
+                                                        {s === 'ABERTO' ? '○ Aberto' : '● Fechado'}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                                <div onClick={() => setForm({ ...form, monitor: !form.monitor })} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 14px', borderRadius: '10px', userSelect: 'none', border: `1.5px solid ${form.monitor ? '#eab308' : 'var(--border)'}`, background: form.monitor ? 'rgba(234,179,8,0.1)' : 'rgba(255,255,255,0.03)', transition: 'all 0.2s' }}>
+                                    <div style={{ position: 'relative', width: '36px', height: '20px', borderRadius: '10px', background: form.monitor ? '#eab308' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s', flexShrink: 0 }}>
+                                        <div style={{ position: 'absolute', top: '3px', left: form.monitor ? '19px' : '3px', width: '14px', height: '14px', borderRadius: '50%', background: 'white', transition: 'left 0.2s' }} />
+                                    </div>
+                                    <BellRing size={14} color={form.monitor ? '#eab308' : 'var(--text-muted)'} />
+                                    <span style={{ fontSize: '0.82rem', fontWeight: form.monitor ? '700' : '400', color: form.monitor ? '#eab308' : 'var(--text-muted)' }}>
+                                        {form.monitor ? 'Monitorando — alerta ativo' : 'Monitorar na listagem'}
+                                    </span>
+                                </div>
+                                <button type="submit" className="btn-premium" disabled={saving} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                    {saving ? 'Salvando...' : editingId ? <><Pencil size={16} /> Salvar Alterações</> : <><Plus size={16} /> Salvar Evento</>}
+                                </button>
                             </form>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                {events.map(ev => (
-                                    <div key={ev.id} style={{ display: 'flex', gap: '15px', borderLeft: '2px solid var(--primary)', paddingLeft: '15px' }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--primary)' }}>{new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {ev.event_time}</div>
-                                                {ev.monitor === 1 && <span style={{ background: 'rgba(234, 179, 8, 0.2)', color: '#eab308', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: '700' }}>MONITORADO</span>}
+                            {/* Attachments section — only in edit mode */}
+                            {editingId && (
+                                <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Paperclip size={13} /> Anexos do Evento ({eventAttachments.length})
+                                    </div>
+                                    <div
+                                        onClick={() => eventFileRef.current?.click()}
+                                        style={{ border: '2px dashed var(--border)', borderRadius: '10px', padding: '12px', textAlign: 'center', cursor: 'pointer', background: 'rgba(99,102,241,0.03)', transition: 'border-color 0.2s', marginBottom: '10px' }}
+                                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                                    >
+                                        <UploadCloud size={20} color="var(--primary)" style={{ marginBottom: '4px' }} />
+                                        <div style={{ fontSize: '0.78rem', fontWeight: '600' }}>{uploading ? 'Enviando...' : 'Clique para anexar'}</div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PDF, imagens, documentos</div>
+                                        <input ref={eventFileRef} type="file" style={{ display: 'none' }} onChange={handleEventFileUpload} disabled={uploading} />
+                                    </div>
+                                    {eventAttachments.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            {eventAttachments.map(att => {
+                                                const isImg = (att.type && att.type.startsWith('image')) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.url || att.name || '');
+                                                return (
+                                                    <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '8px 10px', border: '1px solid var(--border)' }}>
+                                                        {isImg ? (
+                                                            <img src={att.url} alt={att.name} style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '5px', flexShrink: 0 }} />
+                                                        ) : (
+                                                            <div style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(99,102,241,0.15)', borderRadius: '5px', flexShrink: 0 }}>
+                                                                <File size={16} color="var(--primary)" />
+                                                            </div>
+                                                        )}
+                                                        <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: 'white', fontWeight: '600', fontSize: '0.78rem', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                            onMouseEnter={e => e.target.style.color = 'var(--primary)'}
+                                                            onMouseLeave={e => e.target.style.color = 'white'}
+                                                        >{att.name}</a>
+                                                        <button onClick={() => handleDeleteEventAttachment(att.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', flexShrink: 0 }}>
+                                                            <Trash size={15} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RIGHT — List card */}
+                        <div className="glass card" style={{ border: '2px solid var(--border)', overflowY: 'auto' }}>
+                            <h3 style={{ marginBottom: '1.25rem', fontSize: '1rem' }}>
+                                Eventos Cadastrados <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '400' }}>({events.length})</span>
+                            </h3>
+                            {events.length === 0 ? (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Nenhum evento cadastrado.</p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                                    {events.map((ev, idx) => {
+                                        const hasDate = ev.event_date && ev.event_date.trim() !== '';
+                                        const isMonitored = ev.monitor === 1;
+                                        const isTarefa = ev.type === 'Tarefa';
+                                        const isFechado = ev.event_status === 'FECHADO';
+                                        const typeColor = isTarefa ? '#818cf8' : '#94a3b8';
+                                        const statusColor = isFechado ? '#22c55e' : '#f59e0b';
+                                        return (
+                                            <div key={ev.id} style={{ padding: '14px 16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: `1.5px solid ${isMonitored ? '#eab308' : isFechado ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`, opacity: isFechado ? 0.75 : 1 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        {/* Type + Status badges */}
+                                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                            <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: isTarefa ? 'rgba(129,140,248,0.15)' : 'rgba(148,163,184,0.15)', color: typeColor, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                                                                {isTarefa ? '✓ Tarefa' : '✎ Anotação'}
+                                                            </span>
+                                                            <span
+                                                                style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: isFechado ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)', color: statusColor, letterSpacing: '0.4px', textTransform: 'uppercase' }}
+                                                            >
+                                                                {isFechado ? '● Fechado' : '○ Aberto'}
+                                                            </span>
+                                                        </div>
+                                                        {/* Title */}
+                                                        <div style={{ fontWeight: '700', fontSize: '0.92rem', marginBottom: '3px', textDecoration: isFechado ? 'line-through' : 'none', color: isFechado ? 'var(--text-muted)' : 'inherit' }}>
+                                                            {ev.title || ev.description}
+                                                        </div>
+                                                        {/* Description (only if title exists and description differs) */}
+                                                        {ev.title && ev.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>{ev.description}</div>}
+                                                        {/* Date + monitor badges */}
+                                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                            {hasDate ? (
+                                                                <span style={{ fontSize: '0.72rem', background: 'rgba(99,102,241,0.15)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '6px', fontWeight: '700' }}>
+                                                                    📅 {new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR')}{ev.event_time ? ` às ${ev.event_time}` : ''}
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '6px' }}>Sem data definida</span>
+                                                            )}
+                                                            {isMonitored && <span style={{ fontSize: '0.68rem', background: 'rgba(234,179,8,0.15)', color: '#eab308', padding: '2px 8px', borderRadius: '6px', fontWeight: '800' }}>MONITORADO</span>}
+                                                        </div>
+                                                        {ev.user_name && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '5px' }}>por {ev.user_name}</div>}
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0, opacity: isTarefa && isFechado ? 0.35 : 1, pointerEvents: isTarefa && isFechado ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+                                                        <button
+                                                            className="btn-icon"
+                                                            title="Anexar arquivo a este evento"
+                                                            disabled={isTarefa && isFechado}
+                                                            style={{ color: cardUploadingId === ev.id ? 'var(--primary)' : 'var(--text-muted)', position: 'relative', cursor: isTarefa && isFechado ? 'not-allowed' : 'pointer' }}
+                                                            onClick={() => {
+                                                                const input = document.createElement('input');
+                                                                input.type = 'file';
+                                                                input.onchange = (e) => uploadEventAttachment(e.target.files[0], ev.id);
+                                                                input.click();
+                                                            }}
+                                                        >
+                                                            <Paperclip size={16} />
+                                                            {cardUploadingId === ev.id && (
+                                                                <span style={{ position: 'absolute', top: '-3px', right: '-3px', width: '7px', height: '7px', borderRadius: '50%', background: 'var(--primary)' }} />
+                                                            )}
+                                                        </button>
+                                                        <button className="btn-icon" title="Editar evento" disabled={isTarefa && isFechado} onClick={() => handleEditEvent(ev)} style={{ color: editingId === ev.id ? 'var(--primary)' : 'var(--text-muted)' }}><Pencil size={16} /></button>
+                                                        <button className="btn-icon" title={isMonitored ? 'Desativar alerta' : 'Ativar alerta'} disabled={isTarefa && isFechado} onClick={() => handleToggleMonitor(ev)} style={{ color: isMonitored ? '#eab308' : 'var(--text-muted)' }}><BellRing size={16} /></button>
+                                                        <button className="btn-icon" title="Excluir evento" disabled={isTarefa && isFechado} onClick={() => handleDeleteEvent(ev.id)} style={{ color: '#ef4444' }}><Trash2 size={16} /></button>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.9rem' }}>{ev.description}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>Registrado por: {ev.user_name || 'Sistema'}</div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
+                        {history.length === 0 ? (
+                            <p style={{ color: 'var(--text-muted)' }}>Nenhuma mudança de fase registrada.</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                {history.map((h, idx) => (
+                                    <div key={h.id} style={{ display: 'flex', gap: '15px' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: idx === 0 ? 'var(--primary)' : 'var(--border)', border: '2px solid var(--card-bg)' }} />
+                                            {idx !== history.length - 1 && <div style={{ width: '2px', flex: 1, background: 'var(--border)', margin: '4px 0' }} />}
+                                        </div>
+                                        <div style={{ paddingBottom: '15px' }}>
+                                            <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{h.new_phase}</div>
+                                            {h.old_phase && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Vindo de: {h.old_phase}</div>}
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(h.created_at).toLocaleString('pt-BR')} por {h.user_name || 'Sistema'}</div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        </>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {history.map((h, idx) => (
-                                <div key={h.id} style={{ display: 'flex', gap: '15px' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: idx === 0 ? 'var(--primary)' : 'var(--border)', border: '2px solid var(--card-bg)', zIndex: 1 }}></div>
-                                        {idx !== history.length - 1 && <div style={{ width: '2px', flex: 1, background: 'var(--border)', margin: '4px 0' }}></div>}
-                                    </div>
-                                    <div style={{ paddingBottom: '15px' }}>
-                                        <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{h.new_phase}</div>
-                                        {h.old_phase && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Vindo de: {h.old_phase}</div>}
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(h.created_at).toLocaleString('pt-BR')} por {h.user_name || 'Sistema'}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>,
         document.body
     );
 };
+
 
 const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settingsProp, onPrint }) => {
     const [form, setForm] = useState({ 
@@ -290,6 +694,21 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     };
 
     const grandTotal = budgetItems.reduce((acc, item) => acc + calculateItemSaleTotal(item), 0);
+
+    const diasFabrica  = budgetItems.reduce((acc, item) =>
+        acc + item.products.reduce((s, p) => {
+            const unit = p.product?.unit?.toUpperCase();
+            if (unit === 'DF') return s + (parseFloat(p.quantity) || 0);
+            if (unit === 'DIA' && !p.product?.name?.toLowerCase().includes('montagem')) return s + (parseFloat(p.quantity) || 0);
+            return s;
+        }, 0), 0);
+    const diasMontagem = budgetItems.reduce((acc, item) =>
+        acc + item.products.reduce((s, p) => {
+            const unit = p.product?.unit?.toUpperCase();
+            if (unit === 'DM') return s + (parseFloat(p.quantity) || 0);
+            if (unit === 'DIA' && p.product?.name?.toLowerCase().includes('montagem')) return s + (parseFloat(p.quantity) || 0);
+            return s;
+        }, 0), 0);
 
     // Most recent active method (same rule as printed proposal)
     const activeMethod = [...availableMethods].slice(-1)[0];
@@ -411,6 +830,20 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                 <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>Parâmetros atuais</div>
                             </div>
                             <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
+                        </div>
+
+                        {/* Factory & Assembly Days */}
+                        <div style={{ marginTop: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                            <div style={{ padding: '0.9rem 1rem', background: 'rgba(99,102,241,0.1)', borderRadius: '12px', border: '1.5px solid rgba(99,102,241,0.35)', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🏭 Dias Fábrica</div>
+                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: 'var(--primary)', lineHeight: 1 }}>{diasFabrica}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>dias produção</div>
+                            </div>
+                            <div style={{ padding: '0.9rem 1rem', background: 'rgba(234,179,8,0.08)', borderRadius: '12px', border: '1.5px solid rgba(234,179,8,0.35)', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: '800', color: '#eab308', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🔧 Dias Montagem</div>
+                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#eab308', lineHeight: 1 }}>{diasMontagem}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>dias instalação</div>
+                            </div>
                         </div>
                     </div>
 
@@ -580,6 +1013,7 @@ const Proposals = ({ user }) => {
     const [eventModalData, setEventModalData] = useState({ show: false, proposal: null });
     const [completionModalData, setCompletionModalData] = useState({ show: false, proposal: null });
     const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
+    const [attachmentsModalData, setAttachmentsModalData] = useState({ show: false, proposal: null });
 
     useEffect(() => {
         fetchProposals();
@@ -692,11 +1126,12 @@ const Proposals = ({ user }) => {
                                                 <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
                                                         <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
                                                         {p.status === 'ABERTO' && (
                                                             <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
                                                         )}
-                                                        <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
+                                                        <button onClick={() => setAttachmentsModalData({ show: true, proposal: p })} title="Anexos da Proposta" style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer' }}><Paperclip size={18} /></button>
                                                         {canModify && (
                                                             <>
                                                                 <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
@@ -716,6 +1151,7 @@ const Proposals = ({ user }) => {
             </div>
 
             {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
+            {attachmentsModalData.show && <AttachmentsModal proposal={attachmentsModalData.proposal} onClose={() => setAttachmentsModalData({ show: false, proposal: null })} />}
             {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => setEventModalData({ show: false, proposal: null })} />}
             {completionModalData.show && <ProposalCompletionModal
                 proposal={completionModalData.proposal}

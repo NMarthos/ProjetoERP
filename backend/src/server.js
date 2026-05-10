@@ -383,10 +383,25 @@ async function start() {
             try {
                 const result = await db.run('INSERT INTO proposals (tenant_id, partner_id, user_id, description, value, status, phase, phase_date) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
                     [req.tenantId, partner_id, req.user.id, description, value || 0, status || 'ABERTO', newPhase]);
-                
+
                 await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
                     [req.tenantId, result.lastID, null, newPhase, req.user.id]);
-                    
+
+                // Eventos padrão do fluxo comercial (tipo Tarefa)
+                const defaultEvents = [
+                    '1 - Levantar / Anexar medidas e requisitos',
+                    '2 - Projetar ambientes e anexar imagens',
+                    '3 - Elaborar proposta',
+                    '4 - Reunião de apresentação',
+                    '5 - Concluir proposta',
+                ];
+                for (const desc of defaultEvents) {
+                    await db.run(
+                        'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [req.tenantId, result.lastID, '', '', desc, '', 'Tarefa', 'ABERTO', 0, req.user.id]
+                    );
+                }
+
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
                 console.error("POST proposals error:", err);
@@ -462,7 +477,7 @@ async function start() {
                     FROM proposal_events e
                     LEFT JOIN users u ON e.user_id = u.id
                     WHERE e.proposal_id=? AND e.tenant_id=?
-                    ORDER BY e.event_date ASC, e.event_time ASC`, [req.params.id, req.tenantId]);
+                    ORDER BY e.id ASC`, [req.params.id, req.tenantId]);
                 res.json(events);
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao buscar eventos' });
@@ -502,11 +517,11 @@ async function start() {
         });
 
         app.post('/api/proposals/:id/events', authMiddleware, async (req, res) => {
-            const { event_date, event_time, description, monitor } = req.body;
+            const { event_date, event_time, title, description, type, event_status, monitor } = req.body;
             try {
                 await db.run(
-                    'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, description, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [req.tenantId, req.params.id, event_date, event_time, description, monitor ? 1 : 0, req.user.id]
+                    'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [req.tenantId, req.params.id, event_date || '', event_time || '', title || '', description, type || 'Anotacao', event_status || 'ABERTO', monitor ? 1 : 0, req.user.id]
                 );
                 res.json({ ok: true });
             } catch (err) {
@@ -515,16 +530,81 @@ async function start() {
         });
 
         app.put('/api/events/:id', authMiddleware, async (req, res) => {
-            const { event_date, event_time, description, monitor } = req.body;
+            const { event_date, event_time, title, description, type, event_status, monitor } = req.body;
             try {
-                await db.run(
-                    'UPDATE proposal_events SET event_date=?, event_time=?, description=?, monitor=? WHERE id=? AND tenant_id=?',
-                    [event_date, event_time, description, monitor ? 1 : 0, req.params.id, req.tenantId]
+                // Fetch current event before updating to detect status change
+                const currentEvent = await db.get(
+                    'SELECT * FROM proposal_events WHERE id=? AND tenant_id=?',
+                    [req.params.id, req.tenantId]
                 );
+
+                await db.run(
+                    'UPDATE proposal_events SET event_date=?, event_time=?, title=?, description=?, type=?, event_status=?, monitor=? WHERE id=? AND tenant_id=?',
+                    [event_date ?? '', event_time ?? '', title ?? '', description, type ?? 'Anotacao', event_status ?? 'ABERTO', monitor ? 1 : 0, req.params.id, req.tenantId]
+                );
+
+                // Auto-advance proposal phase when a Tarefa is closed
+                const isClosing = event_status === 'FECHADO' && currentEvent?.event_status !== 'FECHADO';
+                const isTarefa = (type ?? currentEvent?.type) === 'Tarefa';
+
+                if (isClosing && isTarefa && currentEvent?.proposal_id) {
+                    const eventTitle = title ?? currentEvent?.title ?? '';
+                    const PHASE_MAP = {
+                        '1 -': '1-Comercial/Lev.Medidas',
+                        '2 -': '1-Comercial/Projeto',
+                        '3 -': '1-Comercial/Proposta',
+                        '4 -': '1-Comercial/Apresentação',
+                    };
+                    let newPhase = null;
+                    for (const [prefix, phase] of Object.entries(PHASE_MAP)) {
+                        if (eventTitle.startsWith(prefix)) { newPhase = phase; break; }
+                    }
+                    if (newPhase) {
+                        const proposal = await db.get('SELECT phase FROM proposals WHERE id=? AND tenant_id=?',
+                            [currentEvent.proposal_id, req.tenantId]);
+                        if (proposal && proposal.phase !== newPhase) {
+                            await db.run('UPDATE proposals SET phase=?, phase_date=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?',
+                                [newPhase, currentEvent.proposal_id, req.tenantId]);
+                            await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
+                                [req.tenantId, currentEvent.proposal_id, proposal.phase, newPhase, req.user.id]);
+                        }
+                    }
+                }
+
                 res.json({ ok: true });
             } catch (err) {
+                console.error('PUT /events error:', err);
                 res.status(500).json({ error: 'Erro ao atualizar evento' });
             }
+        });
+
+        // --- EVENT ATTACHMENTS ---
+        app.get('/api/events/:id/attachments', authMiddleware, async (req, res) => {
+            try {
+                const atts = await db.all('SELECT * FROM event_attachments WHERE event_id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json(atts);
+            } catch (err) { res.status(500).json({ error: 'Erro ao buscar anexos do evento' }); }
+        });
+
+        app.post('/api/events/:id/attachments', authMiddleware, async (req, res) => {
+            const { name, url, type } = req.body;
+            console.log('[EVENT ATT] POST event_id:', req.params.id, 'tenant:', req.tenantId, 'name:', name);
+            try {
+                const result = await db.run('INSERT INTO event_attachments (tenant_id, event_id, name, url, type) VALUES (?, ?, ?, ?, ?)',
+                    [req.tenantId, req.params.id, name, url, type]);
+                console.log('[EVENT ATT] Inserted id:', result.lastID);
+                res.json({ ok: true, id: result.lastID });
+            } catch (err) {
+                console.error('[EVENT ATT] Insert error:', err.message);
+                res.status(500).json({ error: 'Erro ao salvar anexo do evento: ' + err.message });
+            }
+        });
+
+        app.delete('/api/event-attachments/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM event_attachments WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) { res.status(500).json({ error: 'Erro ao remover anexo do evento' }); }
         });
 
         app.delete('/api/proposals/:id', authMiddleware, async (req, res) => {
