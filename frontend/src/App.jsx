@@ -6,6 +6,8 @@ import ProductionOrders from './pages/ProductionOrders';
 import Partners from './pages/Partners';
 import Products from './pages/Products';
 import Security from './pages/Security';
+import Parameters from './pages/Parameters';
+import PaymentMethods from './pages/PaymentMethods';
 import './index.css';
 
 function App() {
@@ -73,13 +75,17 @@ function App() {
                 ) : currentView === 'M0' ? (
                     <Partners />
                 ) : currentView === 'M1' ? (
-                    <Proposals />
+                    <Proposals user={user} />
                 ) : currentView === 'M2' ? (
                     <ProductionOrders />
                 ) : currentView === 'M_PROD' ? (
                     <Products />
                 ) : currentView === 'M_SECURITY' ? (
                     <Security />
+                ) : currentView === 'M_PARAMS' ? (
+                    <Parameters />
+                ) : currentView === 'M_PAYMENTS' ? (
+                    <PaymentMethods />
                 ) : (
                     <div className="glass card">Selecione um módulo no menu lateral.</div>
                 )}

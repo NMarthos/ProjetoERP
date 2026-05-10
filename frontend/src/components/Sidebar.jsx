@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2 } from 'lucide-react';
+import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2, FileText } from 'lucide-react';
 
 const Sidebar = ({ user, onLogout, setView, currentView }) => {
     const [geralOpen, setGeralOpen] = useState(true);
+    const [comercialOpen, setComercialOpen] = useState(true);
     const [secOpen, setSecOpen] = useState(false);
 
     const menuItems = [
@@ -15,10 +16,21 @@ const Sidebar = ({ user, onLogout, setView, currentView }) => {
             toggle: () => setGeralOpen(!geralOpen),
             subItems: [
                 { icon: <UserPlus size={18} />, label: 'Clientes', module: 'M0' },
-                { icon: <Package size={18} />, label: 'Produtos e Serviços', module: 'M_PROD' }
+                { icon: <Package size={18} />, label: 'Produtos e Serviços', module: 'M_PROD' },
+                { icon: <Settings size={18} />, label: 'Parâmetros da Empresa', module: 'M_PARAMS' }
             ]
         },
-        { icon: <Users size={20} />, label: 'Comercial', module: 'M1' },
+        { 
+            label: 'Comercial', 
+            icon: <Users size={20} />,
+            isHeader: true,
+            isOpen: comercialOpen,
+            toggle: () => setComercialOpen(!comercialOpen),
+            subItems: [
+                { icon: <FileText size={18} />, label: 'Proposta', module: 'M1' },
+                { icon: <Wallet size={18} />, label: 'Formas de Pagamento', module: 'M_PAYMENTS' }
+            ]
+        },
         { icon: <Factory size={20} />, label: 'Fábrica', module: 'M2' },
         { icon: <Wallet size={20} />, label: 'Administrativo', module: 'M3' },
     ];
@@ -38,9 +50,13 @@ const Sidebar = ({ user, onLogout, setView, currentView }) => {
 
     return (
         <aside className="sidebar">
-            <div style={{ marginBottom: '2rem', padding: '0 1rem' }}>
-                <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '800' }}>ERP MÓVEIS</h2>
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Empresa #{user.tenantId}</p>
+            <div style={{ marginBottom: '2.5rem', padding: '1rem', textAlign: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', margin: '0 1rem 2rem' }}>
+                {user?.logo_url ? (
+                    <img src={user.logo_url} alt="Logo Empresa" style={{ maxWidth: '100%', maxHeight: '60px', objectFit: 'contain', marginBottom: '10px' }} />
+                ) : (
+                    <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '800', margin: 0 }}>ERP MÓVEIS</h2>
+                )}
+                <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '8px' }}>Empresa #{user.tenantId}</p>
             </div>
 
             <nav style={{ flex: 1 }}>

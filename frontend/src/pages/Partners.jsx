@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onSave }) => {
     const [form, setForm] = useState({
         name: '', type: 'CLIENTE', document: '', email: '', phone: '',
-        address: '', address_num: '', address_complement: '', address_neighborhood: '', address_cep: '', address_city: '', notes: '', referrer_id: ''
+        address: '', address_num: '', address_complement: '', address_neighborhood: '', address_cep: '', address_city: '', notes: '', referrer_id: '', commission_percentage: 0
     });
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState(initialTab === 'indicacao' ? 'dados' : initialTab);
@@ -69,22 +69,11 @@ const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onS
 
         setSaving(true);
         try {
-            let partnerId = partner ? partner.id : null;
-
             if (partner) {
                 await api.put(`/partners/${partner.id}`, form);
             } else {
-                const res = await api.post('/partners', form);
-                partnerId = res.data.id;
+                await api.post('/partners', form);
             }
-
-            if (partnerId) {
-                await api.delete(`/referrals/client/${partnerId}`);
-                if (form.referrer_id) {
-                    await api.post('/referrals', { client_id: partnerId, referrer_id: form.referrer_id, notes: 'Indicação' });
-                }
-            }
-
             onSave();
         } catch (err) { alert('Erro ao salvar parceiro'); }
         setSaving(false);
@@ -152,6 +141,10 @@ const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onS
                             <div>
                                 <label>Telefone</label>
                                 <input value={form.phone} onChange={e => setForm({...form, phone: maskPhone(e.target.value)})} maxLength="15" />
+                            </div>
+                            <div>
+                                <label>% Comissão</label>
+                                <input type="number" step="0.01" value={form.commission_percentage} onChange={e => setForm({...form, commission_percentage: e.target.value})} placeholder="0.00" />
                             </div>
                             {form.type === 'CLIENTE' && (
                                 <div style={{ gridColumn: '1 / -1', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '10px', borderRadius: '8px' }}>
@@ -243,7 +236,7 @@ const Partners = () => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Geral / Clientes</h2>
+                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Clientes</h2>
                     <p style={{ color: 'var(--text-muted)' }}>Gerencie seus clientes e parceiros.</p>
                 </div>
                 <button className="btn-premium" onClick={() => setModal({ show: true, data: null, tab: 'dados' })}>
@@ -281,7 +274,14 @@ const Partners = () => {
                                     </div>
                                     <div>
                                         <h4 style={{ margin: 0 }}>{p.name}</h4>
-                                        <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: '700' }}>{p.type}</span>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: '700' }}>{p.type}</span>
+                                            {p.commission_percentage > 0 && (
+                                                <span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                                    {p.commission_percentage}% Comissão
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '4px' }}>

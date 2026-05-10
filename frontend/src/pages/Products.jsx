@@ -14,7 +14,9 @@ const unitDomain = {
     PAR: 'Par',
     H:   'Hora',
     DIA: 'Dia',
-    PC:  'Peça'
+    PC:  'Peça',
+    DF:  'Diária fábrica',
+    DM:  'Diária montagem'
 };
 
 // ── Funções de Formatação ──────────────────────────────────────────────────
@@ -284,7 +286,7 @@ const Products = () => {
                                         {p.photo ? (
                                             <img src={p.photo} style={{ width: '44px', height: '44px', borderRadius: '10px', objectFit: 'cover' }} alt={p.name} />
                                         ) : (
-                                            <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.25)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                 <Package size={22} />
                                             </div>
                                         )}
@@ -301,7 +303,7 @@ const Products = () => {
                                     </div>
                                 </div>
                                 
-                                <div style={{ fontSize: '1rem', marginBottom: '12px', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '8px' }}>
+                                <div style={{ fontSize: '1rem', marginBottom: '12px', background: 'rgba(0,0,0,0.45)', padding: '10px 14px', borderRadius: '8px', border: '1.5px solid var(--border)' }}>
                                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Valor: </span> 
                                     <span style={{ fontWeight: '800', color: 'var(--primary)' }}>R$ {p.value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span> 
                                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}> / {unitDomain[p.unit]}</span>

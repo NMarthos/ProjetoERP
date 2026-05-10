@@ -120,7 +120,7 @@ const ProductionOrders = () => {
             {modalData.show && <OrderModal order={modalData.order} onClose={() => setModalData({ show: false, order: null })} onSave={() => { setModalData({ show: false, order: null }); fetchOrders(); }} />}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Fábrica</h2>
+                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Ordens de Produção</h2>
                     <p style={{ color: 'var(--text-muted)' }}>Controle o fluxo de fabricação dos móveis planejados.</p>
                 </div>
                 <div className="glass" style={{ padding: '10px 20px', borderRadius: '12px' }}>

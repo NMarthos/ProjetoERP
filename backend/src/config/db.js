@@ -2,24 +2,39 @@ const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 
 async function getDbConnection() {
-    return open({
+    const db = await open({
         filename: './database/erp.db',
         driver: sqlite3.Database
     });
+    // Otimização de performance: modo WAL
+    await db.exec('PRAGMA journal_mode = WAL');
+    await db.exec('PRAGMA synchronous = NORMAL');
+    return db;
 }
 
 async function initializeDatabase(db) {
+    console.log('[DB] Iniciando inicialização/migração do banco de dados...');
     // Tenants (RG02)
     await db.exec(`
         CREATE TABLE IF NOT EXISTS tenants (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             cnpj TEXT UNIQUE,
+            logo_url TEXT,
             config TEXT,
             active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
+
+    // Migração: Adicionar logo_url se não existir
+    try {
+        const columns = await db.all("PRAGMA table_info(tenants)");
+        if (!columns.find(c => c.name === 'logo_url')) {
+            await db.run("ALTER TABLE tenants ADD COLUMN logo_url TEXT");
+            console.log('[MIGRAÇÃO] Coluna logo_url adicionada à tabela tenants.');
+        }
+    } catch(e) {}
 
     // Partners (M0)
     await db.exec(`
@@ -143,7 +158,7 @@ async function initializeDatabase(db) {
             tenant_id INTEGER NOT NULL,
             manufacturer_id INTEGER,
             name TEXT NOT NULL,
-            unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC')),
+            unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC', 'DF', 'DM')),
             value DECIMAL(10, 2) DEFAULT 0,
             photo TEXT,
             status INTEGER DEFAULT 1, -- 1: Ativo, 0: Desativado
@@ -165,7 +180,7 @@ async function initializeDatabase(db) {
                 tenant_id INTEGER NOT NULL,
                 manufacturer_id INTEGER,
                 name TEXT NOT NULL,
-                unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC')),
+                unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC', 'DF', 'DM')),
                 value DECIMAL(10, 2) DEFAULT 0,
                 photo TEXT,
                 status INTEGER DEFAULT 1,
@@ -189,53 +204,81 @@ async function initializeDatabase(db) {
 
     // Migração: Atualizar CHECK constraint da tabela proposals
     try {
-        await db.exec(`
-            BEGIN TRANSACTION;
-            CREATE TABLE proposals_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tenant_id INTEGER NOT NULL,
-                partner_id INTEGER NOT NULL,
-                description TEXT NOT NULL,
-                value DECIMAL(10, 2) DEFAULT 0,
-                status TEXT DEFAULT 'ABERTO' CHECK(status IN ('ABERTO', 'APROVADO', 'REJEITADO', 'PENDENTE')),
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-                FOREIGN KEY (partner_id) REFERENCES partners(id)
-            );
-            
-            INSERT INTO proposals_new (id, tenant_id, partner_id, description, value, status, created_at)
-            SELECT id, tenant_id, partner_id, description, value, status, created_at FROM proposals;
-            
-            DROP TABLE proposals;
-            ALTER TABLE proposals_new RENAME TO proposals;
-            COMMIT;
-        `);
-        console.log('[MIGRAÇÃO] Tabela proposals atualizada com sucesso.');
+        const columns = await db.all("PRAGMA table_info(proposals)");
+        const hasBudgetData = columns.find(c => c.name === 'budget_data');
+        const hasFullStatus = true; // Placeholder para checar constraint se fosse possível facilmente
+
+        // Só executa se a tabela ainda não tiver sido atualizada com as novas colunas
+        // Se já tem 'budget_data', assumimos que já passou por aqui ou pelo loop de migrações
+        if (!hasBudgetData) {
+            await db.exec(`
+                BEGIN TRANSACTION;
+                CREATE TABLE proposals_temp (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL,
+                    partner_id INTEGER NOT NULL,
+                    user_id INTEGER,
+                    description TEXT NOT NULL,
+                    value DECIMAL(10, 2) DEFAULT 0,
+                    status TEXT DEFAULT 'ABERTO' CHECK(status IN ('ABERTO', 'APROVADO', 'REJEITADO', 'PENDENTE', 'EM PRODUÇÃO', 'FINALIZADO', 'CANCELADO')),
+                    phase TEXT DEFAULT '1-Comercial',
+                    phase_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    budget_data TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                    FOREIGN KEY (partner_id) REFERENCES partners(id)
+                );
+                
+                INSERT INTO proposals_temp (id, tenant_id, partner_id, description, value, status, created_at)
+                SELECT id, tenant_id, partner_id, description, value, status, created_at FROM proposals;
+                
+                DROP TABLE proposals;
+                ALTER TABLE proposals_temp RENAME TO proposals;
+                COMMIT;
+            `);
+            console.log('[MIGRAÇÃO] Tabela proposals estruturada com novas colunas.');
+        }
     } catch (e) {
         try { await db.exec('ROLLBACK;'); } catch(err) {}
     }
 
     const migrations = [
-        'ALTER TABLE partners ADD COLUMN address_num TEXT',
-        'ALTER TABLE partners ADD COLUMN address_complement TEXT',
-        'ALTER TABLE partners ADD COLUMN address_cep TEXT',
-        'ALTER TABLE partners ADD COLUMN address_city TEXT',
-        'ALTER TABLE partners ADD COLUMN address_neighborhood TEXT',
-        'ALTER TABLE partners ADD COLUMN notes TEXT',
-        'ALTER TABLE proposals ADD COLUMN value DECIMAL(10, 2) DEFAULT 0',
-        'ALTER TABLE proposals ADD COLUMN status TEXT DEFAULT "ABERTO"',
-        'ALTER TABLE proposals ADD COLUMN user_id INTEGER',
-        'ALTER TABLE proposals ADD COLUMN phase TEXT DEFAULT "1-Comercial"',
-        'ALTER TABLE proposals ADD COLUMN phase_date DATETIME DEFAULT CURRENT_TIMESTAMP',
-        'ALTER TABLE proposals ADD COLUMN budget_data TEXT',
-        'ALTER TABLE production_orders ADD COLUMN priority TEXT DEFAULT "MEDIA"',
-        'ALTER TABLE production_orders ADD COLUMN start_date DATETIME',
-        'ALTER TABLE production_orders ADD COLUMN end_date DATETIME',
-        'ALTER TABLE users ADD COLUMN role TEXT DEFAULT "USER"'
+        { table: 'partners', column: 'address_num', type: 'TEXT' },
+        { table: 'partners', column: 'address_complement', type: 'TEXT' },
+        { table: 'partners', column: 'address_cep', type: 'TEXT' },
+        { table: 'partners', column: 'address_city', type: 'TEXT' },
+        { table: 'partners', column: 'address_neighborhood', type: 'TEXT' },
+        { table: 'partners', column: 'notes', type: 'TEXT' },
+        { table: 'partners', column: 'commission_percentage', type: 'DECIMAL(5, 2) DEFAULT 0' },
+        { table: 'proposals', column: 'value', type: 'DECIMAL(10, 2) DEFAULT 0' },
+        { table: 'proposals', column: 'status', type: 'TEXT DEFAULT "ABERTO"' },
+        { table: 'proposals', column: 'user_id', type: 'INTEGER' },
+        { table: 'proposals', column: 'phase', type: 'TEXT DEFAULT "1-Comercial"' },
+        { table: 'proposals', column: 'phase_date', type: 'DATETIME DEFAULT CURRENT_TIMESTAMP' },
+        { table: 'proposals', column: 'budget_data', type: 'TEXT' },
+        { table: 'production_orders', column: 'priority', type: 'TEXT DEFAULT "MEDIA"' },
+        { table: 'production_orders', column: 'start_date', type: 'DATETIME' },
+        { table: 'production_orders', column: 'end_date', type: 'DATETIME' },
+        { table: 'users', column: 'role', type: 'TEXT DEFAULT "USER"' },
+        { table: 'proposals', column: 'fabrication_days', type: 'INTEGER DEFAULT 0' },
+        { table: 'proposals', column: 'assembly_days', type: 'INTEGER DEFAULT 0' },
+        { table: 'proposals', column: 'payment_methods', type: 'TEXT' },
+        { table: 'proposals', column: 'payment_notes', type: 'TEXT' },
+        { table: 'proposals', column: 'pricing_snapshot', type: 'TEXT' },
+        { table: 'payment_conditions', column: 'finance_cost_percentage', type: 'REAL DEFAULT 0' }
     ];
 
     for (const m of migrations) {
-        try { await db.run(m); } catch (e) { /* Coluna já existe */ }
+        try {
+            const columns = await db.all(`PRAGMA table_info(${m.table})`);
+            const exists = columns.find(c => c.name === m.column);
+            if (!exists) {
+                await db.run(`ALTER TABLE ${m.table} ADD COLUMN ${m.column} ${m.type}`);
+                console.log(`[MIGRAÇÃO] Coluna ${m.column} adicionada à tabela ${m.table}.`);
+            }
+        } catch (e) {
+            console.error(`[MIGRAÇÃO] Erro ao adicionar coluna ${m.column} à tabela ${m.table}:`, e.message);
+        }
     }
     
     // History Table
@@ -269,9 +312,100 @@ async function initializeDatabase(db) {
             FOREIGN KEY (proposal_id) REFERENCES proposals(id)
         )
     `);
+
+    // Attachments Table
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS proposal_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            proposal_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            type TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (proposal_id) REFERENCES proposals(id)
+        )
+    `);
     
+    // Migração: Atualizar CHECK constraint da tabela tenant_parameters para incluir 'PERCENTAGE'
+    try {
+        const columns = await db.all("PRAGMA table_info(tenant_parameters)");
+        if (columns.length > 0) {
+            await db.exec(`
+                BEGIN TRANSACTION;
+                CREATE TABLE tenant_parameters_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL,
+                    key TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('STRING', 'NUMBER', 'BOOLEAN', 'JSON', 'PERCENTAGE')),
+                    value TEXT NOT NULL,
+                    description TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                    UNIQUE(tenant_id, key)
+                );
+                
+                INSERT INTO tenant_parameters_new (id, tenant_id, key, type, value, description, updated_at)
+                SELECT id, tenant_id, key, type, value, description, updated_at FROM tenant_parameters;
+                
+                DROP TABLE tenant_parameters;
+                ALTER TABLE tenant_parameters_new RENAME TO tenant_parameters;
+                COMMIT;
+            `);
+            console.log('[MIGRAÇÃO] Tabela tenant_parameters atualizada com sucesso (tipo PERCENTAGE).');
+        }
+    } catch (e) {
+        try { await db.exec('ROLLBACK;'); } catch(err) {}
+    }
+
+    // Tenant Parameters Table
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS tenant_parameters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            key TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('STRING', 'NUMBER', 'BOOLEAN', 'JSON', 'PERCENTAGE')),
+            value TEXT NOT NULL,
+            description TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            UNIQUE(tenant_id, key)
+        )
+    `);
+
+    // Tabela de Formas de Pagamento
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS payment_methods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    `);
+
+    // Tabela de Condições de Pagamento (Subordinada)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS payment_conditions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            payment_method_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            discount_percentage REAL DEFAULT 0,
+            finance_cost_percentage REAL DEFAULT 0,
+            installments INTEGER DEFAULT 1,
+            down_payment_percentage REAL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE CASCADE
+        )
+    `);
+
     // Atualiza usuários antigos para admin por segurança
     try { await db.run('UPDATE users SET role = "ADMIN" WHERE role = "USER" OR role IS NULL'); } catch(e) {}
+    console.log("Banco de dados inicializado com sucesso.");
 }
 
 module.exports = { getDbConnection, initializeDatabase };

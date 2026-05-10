@@ -1,65 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing } from 'lucide-react';
-import { maskCurrency, parseCurrency } from '../utils/masks';
-import BudgetModal from './BudgetModal';
+import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import BudgetModal from './BudgetModal';
 
-const statusConfig = {
-    ABERTO:    { label: 'Aberto',    color: '#eab308', bg: 'rgba(234,179,8,0.15)',   icon: Clock },
-    APROVADO:  { label: 'Aprovado',  color: '#10b981', bg: 'rgba(16,185,129,0.15)', icon: CheckCircle },
-    REJEITADO: { label: 'Rejeitado', color: '#ef4444', bg: 'rgba(239,68,68,0.15)',  icon: XCircle },
+const maskCurrency = (v) => {
+    if (!v) return 'R$ 0,00';
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 };
 
-const PHASES = [
-    '1-Comercial',
-    '2-Fábrica/Técnica',
-    '3-Fábrica/Produção',
-    '4-Fábrica/Despacho',
-    '5-Entrega',
-    '6-Montagem',
-    '7-Entrega técnica',
-    '8-Concluida'
-];
+const parseCurrency = (v) => {
+    if (!v) return 0;
+    if (typeof v === 'number') return v;
+    return parseFloat(v.replace(/[R$\s.]/g, '').replace(',', '.'));
+};
 
-// ── Modal de Cadastro/Edição de Orçamento ──────────────────────────────────────────
+// ── Modais Auxiliares ──────────────────────────────────────────────────────
+
 const ProposalModal = ({ proposal, onClose, onSave }) => {
     const [partners, setPartners] = useState([]);
-    const [form, setForm] = useState({ partner_id: '', description: '', status: 'ABERTO', phase: '1-Comercial' });
     const [referrals, setReferrals] = useState([]);
-    const [history, setHistory] = useState([]);
-    const [activeTab, setActiveTab] = useState('dados');
-    const [saving, setSaving] = useState(false);
+    const [form, setForm] = useState({ 
+        partner_id: '', 
+        description: '', 
+        status: 'ABERTO', 
+        phase: '1-Comercial' 
+    });
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
-        document.body.classList.add('body-no-scroll');
-        return () => document.body.classList.remove('body-no-scroll');
-    }, []);
-
-    useEffect(() => {
-        api.get('/partners')
-            .then(r => setPartners(r.data))
-            .catch(() => setError('Não foi possível carregar os clientes.'));
-        
+        fetchPartners();
         if (proposal) {
             setForm({
-                partner_id: proposal.partner_id || '',
-                description: proposal.description || '',
-                status: proposal.status || 'ABERTO',
+                partner_id: proposal.partner_id,
+                description: proposal.description,
+                status: proposal.status,
                 phase: proposal.phase || '1-Comercial'
             });
-            api.get(`/proposals/${proposal.id}/history`)
-                .then(r => setHistory(r.data))
-                .catch(() => {});
         }
     }, [proposal]);
 
+    const fetchPartners = async () => {
+        try {
+            const r = await api.get('/partners');
+            setPartners(r.data);
+        } catch (e) { console.error(e); }
+    };
+
     useEffect(() => {
         if (form.partner_id) {
-            api.get(`/referrals?clientId=${form.partner_id}`)
-                .then(r => setReferrals(r.data))
-                .catch(() => setReferrals([]));
+            api.get(`/referrals?clientId=${form.partner_id}`).then(r => setReferrals(r.data));
         } else {
             setReferrals([]);
         }
@@ -67,254 +58,188 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.partner_id) { setError('Selecione um cliente.'); return; }
-        if (!form.description.trim()) { setError('Informe a descrição.'); return; }
-
-        setSaving(true);
+        setLoading(true);
         setError('');
         try {
-            const payload = {
-                partner_id: Number(form.partner_id),
-                description: form.description.trim(),
-                status: form.status,
-                phase: form.phase
-            };
-
             if (proposal) {
-                await api.put(`/proposals/${proposal.id}`, payload);
+                await api.put(`/proposals/${proposal.id}`, form);
             } else {
-                await api.post(`/proposals`, payload);
+                await api.post('/proposals', form);
             }
             onSave();
         } catch (err) {
-            setError(err.response?.data?.error || 'Erro ao salvar orçamento.');
-            setSaving(false);
+            setError('Erro ao salvar proposta: ' + (err.response?.data?.error || err.message));
+            setLoading(false);
         }
     };
 
-    const clientePartners = partners.filter(p => p.type === 'CLIENTE'); 
-
-    const isProjeto = proposal && proposal.phase !== '1-Comercial';
-    const title = proposal ? (isProjeto ? 'Detalhes do Projeto' : 'Editar Proposta') : 'Nova Proposta';
-
     return createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '540px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
-                    <div>
-                        <h3 style={{ fontSize: '1.3rem', fontWeight: '700', margin: 0 }}>{title}</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>{isProjeto ? 'Acompanhamento do projeto na fábrica' : 'Preencha os dados da proposta'}</p>
+            <div className="modal-content" style={{ maxWidth: '500px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                    <h2>{proposal ? 'Editar Proposta' : 'Nova Proposta'}</h2>
+                    <button onClick={onClose} className="btn-icon"><X /></button>
+                </div>
+
+                <form onSubmit={handleSubmit}>
+                    <div style={{ marginBottom: '1rem' }}>
+                        <label>Parceiro (Cliente/Arquiteto)</label>
+                        <select 
+                            required 
+                            value={form.partner_id} 
+                            onChange={e => setForm({ ...form, partner_id: e.target.value })}
+                            style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
+                        >
+                            <option value="">Selecione...</option>
+                            {partners.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+                        </select>
+                        {referrals.length > 0 && (
+                            <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <UserCheck size={14} /> Indicado por: {referrals[0].referrer_name}
+                            </div>
+                        )}
                     </div>
-                    <button onClick={onClose} className="btn-icon"><X size={18} /></button>
-                </div>
-                <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                    <div onClick={() => setActiveTab('dados')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'dados' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'dados' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'dados' ? '700' : '500' }}>Dados da {isProjeto ? 'Projeto' : 'Proposta'}</div>
-                    {proposal && <div onClick={() => setActiveTab('historico')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'historico' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'historico' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'historico' ? '700' : '500' }}>Histórico de Fases</div>}
-                </div>
 
-                {error && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '8px', padding: '10px 14px', color: '#ef4444', marginBottom: '1.25rem', fontSize: '0.875rem' }}>{error}</div>}
+                    <div style={{ marginBottom: '1rem' }}>
+                        <label>Breve Descrição do Projeto</label>
+                        <textarea 
+                            required
+                            value={form.description}
+                            onChange={e => setForm({ ...form, description: e.target.value })}
+                            placeholder="Ex: Cozinha Planejada - Edifício Solar"
+                            style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', minHeight: '80px' }}
+                        />
+                    </div>
 
-                {activeTab === 'dados' ? (
-                    <form onSubmit={handleSubmit}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                    {proposal && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                             <div>
-                                <label>Cliente *</label>
-                                <select value={form.partner_id} onChange={e => setForm(f => ({ ...f, partner_id: e.target.value }))} required>
-                                    <option value="">— Selecione um cliente —</option>
-                                    {clientePartners.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
-                                    ))}
+                                <label>Status</label>
+                                <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}>
+                                    <option value="ABERTO">Aberto</option>
+                                    <option value="APROVADO">Aprovado</option>
+                                    <option value="REJEITADO">Rejeitado</option>
+                                    <option value="ARQUIVADO">Arquivado</option>
                                 </select>
                             </div>
-                            {proposal && (
-                                <div>
-                                    <label>Fase Atual</label>
-                                    <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value }))} disabled>
-                                        {PHASES.map(ph => (
-                                            <option key={ph} value={ph}>{ph}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                        </div>
-
-                        {referrals.length > 0 && (
-                            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', padding: '10px', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
-                                <div style={{ color: '#10b981', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                    <UserCheck size={14} /> Cliente Indicado por:
-                                </div>
-                                {referrals.map(r => (
-                                    <div key={r.id} style={{ color: 'var(--text)' }}>
-                                        • {r.referrer_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({r.referrer_type})</span>
-                                    </div>
-                                ))}
+                            <div>
+                                <label>Fase Atual</label>
+                                <select value={form.phase} onChange={e => setForm({ ...form, phase: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}>
+                                    <option value="1-Comercial">1-Comercial</option>
+                                    <option value="2-Fábrica/Técnica">2-Fábrica/Técnica</option>
+                                    <option value="3-Produção">3-Produção</option>
+                                    <option value="4-Montagem">4-Montagem</option>
+                                    <option value="5-Finalizado">5-Finalizado</option>
+                                </select>
                             </div>
-                        )}
-
-                        <label>Descrição (Referencial de Projeto) *</label>
-                        <textarea 
-                            placeholder="Ex: Cozinha completa sob medida..." 
-                            value={form.description} 
-                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} 
-                            required 
-                            style={{ width: '100%', minHeight: '100px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.25)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '0.9rem', resize: 'vertical', outline: 'none', marginBottom: '1rem' }}
-                        />
-
-
-
-                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                            <button type="button" onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontWeight: '600' }}>Cancelar</button>
-                            <button type="submit" disabled={saving} className="btn-premium" style={{ flex: 2 }}>{saving ? 'Salvando...' : '✓ Salvar'}</button>
                         </div>
-                    </form>
-                ) : (
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
-                        {history.length === 0 ? (
-                            <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>Nenhum histórico registrado.</p>
-                        ) : (
-                            <div style={{ borderLeft: '2px solid var(--border)', marginLeft: '10px', paddingLeft: '15px' }}>
-                                {history.map(h => (
-                                    <div key={h.id} style={{ marginBottom: '15px', position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: '-21px', top: '2px', width: '10px', height: '10px', borderRadius: '50%', background: 'var(--primary)' }} />
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(h.created_at).toLocaleString('pt-BR')} por {h.user_name || 'Sistema'}</div>
-                                        <div style={{ fontWeight: '600', color: 'var(--text)', marginTop: '2px' }}>
-                                            {h.old_phase ? `Mudou de "${h.old_phase}" para ` : 'Criado na fase '}
-                                            <span style={{ color: 'var(--primary)' }}>"{h.new_phase}"</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                    )}
+
+                    {error && <div style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</div>}
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem' }}>
+                        <button type="button" onClick={onClose} className="btn-secondary" style={{ flex: 1 }}>Cancelar</button>
+                        <button type="submit" disabled={loading} className="btn-premium" style={{ flex: 1 }}>{loading ? 'Salvando...' : 'Salvar Proposta'}</button>
                     </div>
-                )}
+                </form>
             </div>
         </div>,
         document.body
     );
 };
 
-// ── Modal de Gestão de Eventos ─────────────────────────────────────────────────
-const EventModal = ({ proposal, onClose }) => {
+const EventModal = ({ proposal, onClose, onSave }) => {
     const [events, setEvents] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [form, setForm] = useState({ 
-        id: null, 
-        event_date: new Date().toISOString().split('T')[0], 
-        event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), 
-        description: '', 
-        monitor: false 
-    });
-    const [saving, setSaving] = useState(false);
-
-    const loadEvents = () => {
-        setLoading(true);
-        api.get(`/proposals/${proposal.id}/events`)
-            .then(r => {
-                const sorted = r.data.sort((a, b) => {
-                    const dateA = new Date(`${a.event_date}T${a.event_time || '00:00'}`);
-                    const dateB = new Date(`${b.event_date}T${b.event_time || '00:00'}`);
-                    return dateB - dateA;
-                });
-                setEvents(sorted);
-            })
-            .catch(() => alert('Erro ao carregar eventos'))
-            .finally(() => setLoading(false));
-    };
+    const [history, setHistory] = useState([]);
+    const [activeTab, setActiveTab] = useState('eventos');
+    const [form, setForm] = useState({ event_date: '', event_time: '', description: '', monitor: false });
 
     useEffect(() => {
-        loadEvents();
-    }, [proposal]);
+        fetchEvents();
+        fetchHistory();
+    }, [proposal.id]);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setSaving(true);
-        try {
-            if (form.id) {
-                await api.put(`/events/${form.id}`, form);
-            } else {
-                await api.post(`/proposals/${proposal.id}/events`, form);
-            }
-            setForm({ 
-                id: null, 
-                event_date: new Date().toISOString().split('T')[0], 
-                event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), 
-                description: '', 
-                monitor: false 
-            });
-            loadEvents();
-        } catch (err) {
-            alert('Erro ao salvar evento');
-        } finally {
-            setSaving(false);
-        }
+    const fetchEvents = async () => {
+        const r = await api.get(`/proposals/${proposal.id}/events`);
+        setEvents(r.data);
     };
 
-    const handleEdit = (ev) => {
-        setForm({
-            id: ev.id,
-            event_date: ev.event_date,
-            event_time: ev.event_time,
-            description: ev.description,
-            monitor: ev.monitor === 1
-        });
+    const fetchHistory = async () => {
+        const r = await api.get(`/proposals/${proposal.id}/history`);
+        setHistory(r.data);
+    };
+
+    const handleAddEvent = async (e) => {
+        e.preventDefault();
+        await api.post(`/proposals/${proposal.id}/events`, form);
+        setForm({ event_date: '', event_time: '', description: '', monitor: false });
+        fetchEvents();
     };
 
     return createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '600px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
+            <div className="modal-content" style={{ maxWidth: '600px', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                     <div>
-                        <h3 style={{ fontSize: '1.3rem', fontWeight: '700', margin: 0 }}>Eventos / Agenda</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>Ref: {proposal.phase === '1-Comercial' ? `PROP#${proposal.id}` : `PRJ#${proposal.id}`}</p>
+                        <h2 style={{ fontSize: '1.25rem' }}>Linha do Tempo: #{proposal.id}</h2>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{proposal.description}</div>
                     </div>
-                    <button onClick={onClose} className="btn-icon"><X size={18} /></button>
+                    <button onClick={onClose} className="btn-icon"><X /></button>
                 </div>
-                <div style={{ height: '1px', background: 'linear-gradient(90deg, var(--primary), transparent)', marginBottom: '1.75rem' }} />
 
-                <form onSubmit={handleSubmit} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                        <div>
-                            <label>Data *</label>
-                            <input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} required />
-                        </div>
-                        <div>
-                            <label>Hora *</label>
-                            <input type="time" value={form.event_time} onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))} required />
-                        </div>
-                    </div>
-                    <div style={{ marginBottom: '1rem' }}>
-                        <label>Descrição / Anotação *</label>
-                        <input type="text" placeholder="Ex: Ligar para confirmar medidas" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
-                            <input type="checkbox" checked={form.monitor} onChange={e => setForm(f => ({ ...f, monitor: e.target.checked }))} style={{ width: '18px', height: '18px', margin: 0 }} />
-                            <span style={{ fontSize: '0.9rem', color: form.monitor ? '#ef4444' : 'var(--text)', fontWeight: form.monitor ? '700' : '400' }}>
-                                Monitorar este evento (Alerta)
-                            </span>
-                        </label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            {form.id && <button type="button" onClick={() => setForm({ id: null, event_date: new Date().toISOString().split('T')[0], event_time: new Date().toTimeString().split(' ')[0].slice(0, 5), description: '', monitor: false })} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Cancelar</button>}
-                            <button type="submit" disabled={saving} className="btn-premium" style={{ padding: '8px 16px' }}>{saving ? '...' : (form.id ? 'Atualizar' : 'Adicionar')}</button>
-                        </div>
-                    </div>
-                </form>
+                <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+                    <div onClick={() => setActiveTab('eventos')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'eventos' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'eventos' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'eventos' ? '700' : '500' }}>Eventos & Alertas</div>
+                    <div onClick={() => setActiveTab('historico')} style={{ paddingBottom: '10px', cursor: 'pointer', color: activeTab === 'historico' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'historico' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: activeTab === 'historico' ? '700' : '500' }}>Histórico de Fases</div>
+                </div>
 
-                <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                    <h4 style={{ fontSize: '1rem', color: 'var(--text-muted)', marginBottom: '10px', fontWeight: '600' }}>Eventos Agendados</h4>
-                    {loading ? <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</p> : events.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>Nenhum evento registrado.</p> : (
-                        events.map(ev => (
-                            <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid var(--border)', background: ev.monitor ? 'rgba(239,68,68,0.05)' : 'transparent' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                        <span style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '0.9rem' }}>{ev.event_date.split('-').reverse().join('/')} às {ev.event_time}</span>
-                                        {ev.monitor === 1 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: '700' }}><BellRing size={12} /> Alerta</span>}
-                                    </div>
-                                    <div style={{ color: 'var(--text)', fontSize: '0.9rem' }}>{ev.description}</div>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {activeTab === 'eventos' ? (
+                        <>
+                            <form onSubmit={handleAddEvent} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                    <input type="date" required value={form.event_date} onChange={e => setForm({ ...form, event_date: e.target.value })} style={{ background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px' }} />
+                                    <input type="time" required value={form.event_time} onChange={e => setForm({ ...form, event_time: e.target.value })} style={{ background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px' }} />
                                 </div>
-                                <button onClick={() => handleEdit(ev)} style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: '8px' }}><Pencil size={16} /></button>
+                                <textarea required value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Descreva o evento ou alerta..." style={{ width: '100%', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white', padding: '8px', borderRadius: '6px', marginBottom: '10px', minHeight: '60px' }} />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={form.monitor} onChange={e => setForm({ ...form, monitor: e.target.checked })} /> Monitorar (Exibir Alerta na Listagem)
+                                    </label>
+                                    <button type="submit" className="btn-premium" style={{ padding: '8px 20px', fontSize: '0.9rem' }}>Adicionar</button>
+                                </div>
+                            </form>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                {events.map(ev => (
+                                    <div key={ev.id} style={{ display: 'flex', gap: '15px', borderLeft: '2px solid var(--primary)', paddingLeft: '15px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--primary)' }}>{new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {ev.event_time}</div>
+                                                {ev.monitor === 1 && <span style={{ background: 'rgba(234, 179, 8, 0.2)', color: '#eab308', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: '700' }}>MONITORADO</span>}
+                                            </div>
+                                            <div style={{ fontSize: '0.9rem' }}>{ev.description}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>Registrado por: {ev.user_name || 'Sistema'}</div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))
+                        </>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {history.map((h, idx) => (
+                                <div key={h.id} style={{ display: 'flex', gap: '15px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: idx === 0 ? 'var(--primary)' : 'var(--border)', border: '2px solid var(--card-bg)', zIndex: 1 }}></div>
+                                        {idx !== history.length - 1 && <div style={{ width: '2px', flex: 1, background: 'var(--border)', margin: '4px 0' }}></div>}
+                                    </div>
+                                    <div style={{ paddingBottom: '15px' }}>
+                                        <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{h.new_phase}</div>
+                                        {h.old_phase && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Vindo de: {h.old_phase}</div>}
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(h.created_at).toLocaleString('pt-BR')} por {h.user_name || 'Sistema'}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
             </div>
@@ -323,184 +248,358 @@ const EventModal = ({ proposal, onClose }) => {
     );
 };
 
+const ProposalCompletionModal = ({ proposal, onClose, onSave, settings }) => {
+    const [form, setForm] = useState({ 
+        status: 'ABERTO', 
+        phase: '1-Comercial', 
+        description: '',
+        payment_methods: '',
+        payment_notes: ''
+    });
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const [fullscreenImage, setFullscreenImage] = useState(null);
+    const [availableMethods, setAvailableMethods] = useState([]);
+    const [selectedMethodId, setSelectedMethodId] = useState('');
+
+    useEffect(() => {
+        if (proposal) {
+            setForm({
+                status: proposal.status || 'ABERTO',
+                phase: proposal.phase || '1-Comercial',
+                description: proposal.description || '',
+                payment_methods: proposal.payment_methods || '',
+                payment_notes: proposal.payment_notes || ''
+            });
+            fetchAvailablePaymentMethods();
+        }
+    }, [proposal]);
+
+    const fetchAvailablePaymentMethods = async () => {
+        try {
+            const r = await api.get('/payment-methods');
+            const activeMethods = r.data.filter(m => m.active);
+            setAvailableMethods(activeMethods);
+            if (activeMethods.length > 0) {
+                setSelectedMethodId(activeMethods[0].id);
+            }
+        } catch (err) {
+            console.error('Erro ao carregar formas de pagamento:', err);
+        }
+    };
+
+    let budgetItems = [];
+    try {
+        budgetItems = proposal.budget_data ? JSON.parse(proposal.budget_data) : [];
+    } catch(e) { budgetItems = []; }
+
+    const calculateItemSaleTotal = (item) => {
+        const cost = item.products.reduce((acc, p) => acc + (p.total || 0), 0);
+        const { taxes, markup, financeCost } = settings;
+        const comm = proposal.referrer_commission || 0;
+        
+        // Fórmula: Custo / (1 - (Imposto + Markup + Custo Financeiro + Comissão))
+        const total = cost / (1 - (taxes / 100) - (markup / 100) - (financeCost / 100) - (comm / 100));
+        return total || 0;
+    };
+
+    const grandTotal = budgetItems.reduce((acc, item) => acc + calculateItemSaleTotal(item), 0);
+
+    const handleSelectCondition = (condition, methodName) => {
+        const discountVal = grandTotal * (condition.discount_percentage / 100);
+        const totalComDesconto = grandTotal - discountVal;
+        
+        // Novo: Aplicação do Custo Financeiro
+        const custoFinanceiroVal = totalComDesconto * ((condition.finance_cost_percentage || 0) / 100);
+        const totalFinal = totalComDesconto + custoFinanceiroVal;
+        
+        const entradaVal = totalFinal * (condition.down_payment_percentage / 100);
+        const saldo = totalFinal - entradaVal;
+        const valorParcela = condition.installments > 0 ? saldo / condition.installments : 0;
+
+        let text = `${methodName}: ${condition.title}\n`;
+        text += `• Total Original: ${maskCurrency(grandTotal)}\n`;
+        if (discountVal > 0) text += `• Desconto (${condition.discount_percentage}%): -${maskCurrency(discountVal)}\n`;
+        if (custoFinanceiroVal > 0) text += `• Custo Financeiro (${condition.finance_cost_percentage}%): +${maskCurrency(custoFinanceiroVal)}\n`;
+        text += `• Total Final: ${maskCurrency(totalFinal)}\n`;
+        if (entradaVal > 0) text += `• Entrada (${condition.down_payment_percentage}%): ${maskCurrency(entradaVal)}\n`;
+        
+        if (condition.installments > 1) {
+            text += `• Saldo: ${condition.installments}x de ${maskCurrency(valorParcela)}`;
+        } else if (condition.installments === 1 && saldo > 0) {
+            text += `• Saldo: 1x de ${maskCurrency(saldo)}`;
+        } else if (saldo === 0 && entradaVal > 0) {
+            text += `• Pagamento integral na entrada.`;
+        }
+
+        setForm(f => ({ ...f, payment_methods: text }));
+    };
+
+    const handleAction = async (newStatus) => {
+        setSaving(true);
+        setError('');
+        try {
+            const payload = {
+                status: newStatus,
+                payment_methods: form.payment_methods,
+                payment_notes: form.payment_notes
+            };
+            if (newStatus === 'APROVADO' && form.phase === '1-Comercial') {
+                payload.phase = '2-Fábrica/Técnica';
+            }
+            await api.put(`/proposals/${proposal.id}`, payload);
+            onSave();
+        } catch (err) {
+            setError('Erro ao salvar conclusão: ' + (err.response?.data?.error || err.message));
+            setSaving(false);
+        }
+    };
+
+    if (!proposal) return null;
+
+    return createPortal(
+        <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '1000px', width: '95%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ background: 'var(--card-bg)', borderBottom: '2px solid var(--border)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '2rem' }}>
+                        <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Dados do Cliente</div>
+                            <div style={{ fontWeight: '800', fontSize: '1.2rem', color: 'var(--primary)' }}>{proposal.partner_name}</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{proposal.partner_phone} • {proposal.partner_email || 'E-mail não informado'}</div>
+                        </div>
+                        <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Identificação</div>
+                            <div style={{ fontWeight: '800', fontSize: '1.2rem' }}>{proposal.phase === '1-Comercial' ? `PROPOSTA #${proposal.id}` : `PROJETO #${proposal.id}`}</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Criado em: {new Date(proposal.created_at).toLocaleDateString('pt-BR')}</div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="btn-icon"><X size={24} /></button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '0', flex: 1, overflow: 'hidden' }}>
+                    <div style={{ borderRight: '2px solid var(--border)', padding: '2rem', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
+                        <h4 style={{ margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem', color: 'white' }}>
+                            <FileText size={20} color="var(--primary)" /> Detalhamento dos Itens
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {budgetItems.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>Nenhum item adicionado ao orçamento.</div>
+                            ) : (
+                                budgetItems.map((item, idx) => (
+                                    <div key={idx} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                            <div style={{ fontWeight: '700', fontSize: '1rem' }}>{item.name}</div>
+                                            <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1.1rem' }}>{maskCurrency(calculateItemSaleTotal(item))}</div>
+                                        </div>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '10px', fontStyle: 'italic' }}>
+                                            {item.description || 'Sem descrição adicional'}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px' }}>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                <strong>Produção:</strong> {proposal.fabrication_days} dias
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                <strong>Montagem:</strong> {proposal.assembly_days} dias
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '16px', border: '2px solid #10b981', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: '800', textTransform: 'uppercase', marginBottom: '2px' }}>Valor Total da Proposta</div>
+                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Baseado nos custos e margens configuradas</div>
+                            </div>
+                            <div style={{ fontSize: '2rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
+                        </div>
+                    </div>
+
+                    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'var(--card-bg)' }}>
+                        <div>
+                            <h4 style={{ margin: '0 0 1.25rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem' }}>
+                                <ClipboardCheck size={20} color="var(--primary)" /> Condições de Fechamento
+                            </h4>
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <label style={{ marginBottom: '12px', display: 'block', fontWeight: '700', fontSize: '0.9rem' }}>
+                                    Forma Ativa: <span style={{ color: 'var(--primary)', fontWeight: '800' }}>{availableMethods.find(m => m.id == selectedMethodId)?.name || 'Nenhuma forma ativa'}</span>
+                                </label>
+                                <select value={selectedMethodId} onChange={(e) => setSelectedMethodId(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'rgba(0,0,0,0.2)', color: 'white', border: '1px solid var(--border)', fontSize: '1rem' }}>
+                                    <option value="">Selecione...</option>
+                                    {availableMethods.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                </select>
+                            </div>
+                            {selectedMethodId && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1.5rem' }}>
+                                    {availableMethods.find(m => m.id == selectedMethodId)?.conditions?.map(c => (
+                                        <button key={c.id} onClick={() => handleSelectCondition(c, availableMethods.find(m => m.id == selectedMethodId).name)} className="btn-premium" style={{ padding: '6px 14px', fontSize: '0.8rem', borderRadius: '8px' }}>
+                                            {c.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <label style={{ marginBottom: '8px', display: 'block', fontWeight: '700' }}>Resumo Final</label>
+                                <textarea value={form.payment_methods} onChange={e => setForm(f => ({ ...f, payment_methods: e.target.value }))} style={{ width: '100%', minHeight: '150px', padding: '12px', borderRadius: '8px', border: '1.5px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.9rem' }} />
+                            </div>
+                            <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                                <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase', marginBottom: '4px' }}>Valor de Venda</div>
+                                <div style={{ fontSize: '2rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(proposal.value || 0)}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.3)', borderTop: '2px solid var(--border)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ color: '#ef4444', fontSize: '0.9rem', fontWeight: '600' }}>{error}</div>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <button onClick={() => handleAction('ARQUIVADO')} disabled={saving} className="btn-secondary">Arquivar</button>
+                        <button onClick={() => handleAction('REJEITADO')} disabled={saving} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', cursor: 'pointer', fontWeight: '700' }}>Declinar</button>
+                        <button onClick={() => handleAction('APROVADO')} disabled={saving} className="btn-premium" style={{ padding: '12px 40px', fontSize: '1.1rem' }}>{saving ? 'Processando...' : '✓ Aprovar e Iniciar Projeto'}</button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 // ── Página Principal ─────────────────────────────────────────────────────────
-const Proposals = () => {
+
+const Proposals = ({ user }) => {
     const [proposals, setProposals] = useState([]);
+    const [settings, setSettings] = useState({ taxes: 0, markup: 0 });
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [modalData, setModalData] = useState({ show: false, proposal: null });
+    const [modalOpen, setModalOpen] = useState(false);
+    const [selectedProposal, setSelectedProposal] = useState(null);
     const [eventModalData, setEventModalData] = useState({ show: false, proposal: null });
+    const [completionModalData, setCompletionModalData] = useState({ show: false, proposal: null });
     const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
-    const [error, setError] = useState('');
+
+    useEffect(() => {
+        fetchProposals();
+    }, []);
 
     const fetchProposals = async () => {
         setLoading(true);
         try {
             const r = await api.get('/proposals');
-            setProposals(r.data);
-            setError('');
-        } catch (err) {
-            setError('Erro ao buscar orçamentos.');
-        } finally {
-            setLoading(false);
-        }
+            setProposals(r.data.proposals);
+            setSettings(r.data.settings);
+        } catch (e) { console.error(e); }
+        setLoading(false);
     };
 
-    useEffect(() => { fetchProposals(); }, []);
-
-    const handleSave = () => { setModalData({ show: false, proposal: null }); fetchProposals(); };
-    const handleEventSave = () => { setEventModalData({ show: false, proposal: null }); fetchProposals(); };
-    const handleBudgetSave = () => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); };
+    const handleEdit = (p) => {
+        setSelectedProposal(p);
+        setModalOpen(true);
+    };
 
     const handleDelete = async (id) => {
-        if (!confirm('Deseja realmente excluir este orçamento?')) return;
-        try {
-            await api.delete(`/proposals/${id}`);
-            fetchProposals();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Erro ao excluir orçamento.');
-        }
+        if (!window.confirm('Excluir este orçamento permanentemente?')) return;
+        await api.delete(`/proposals/${id}`);
+        fetchProposals();
     };
 
-    const handleStatusChange = async (proposal, newStatus) => {
-        if (!confirm(`Deseja alterar o status para ${newStatus === 'APROVADO' ? 'Aprovado' : 'Declinado'}?`)) return;
-        try {
-            await api.put(`/proposals/${proposal.id}`, {
-                partner_id: proposal.partner_id,
-                description: proposal.description,
-                status: newStatus,
-                phase: proposal.phase
-            });
-            fetchProposals();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Erro ao alterar status.');
-        }
+    const statusConfig = {
+        'ABERTO': { color: '#eab308', icon: <Clock size={16} /> },
+        'APROVADO': { color: '#10b981', icon: <CheckCircle size={16} /> },
+        'REJEITADO': { color: '#ef4444', icon: <XCircle size={16} /> },
+        'ARQUIVADO': { color: 'var(--text-muted)', icon: <Clock size={16} /> }
     };
 
-    const handleEdit = (proposal) => { setModalData({ show: true, proposal }); };
-
-    const filtered = proposals.filter(p =>
+    const filtered = proposals.filter(p => 
         p.partner_name?.toLowerCase().includes(search.toLowerCase()) ||
-        p.description?.toLowerCase().includes(search.toLowerCase())
+        p.description?.toLowerCase().includes(search.toLowerCase()) ||
+        p.id.toString() === search
     );
 
     return (
-        <div className="fade-in">
-            {modalData.show && (
-                <ProposalModal 
-                    proposal={modalData.proposal} 
-                    onClose={() => setModalData({ show: false, proposal: null })} 
-                    onSave={handleSave} 
-                />
-            )}
-            
-            {eventModalData.show && (
-                <EventModal 
-                    proposal={eventModalData.proposal} 
-                    onClose={handleEventSave} 
-                />
-            )}
-
-            {budgetModalData.show && (
-                <BudgetModal 
-                    proposal={budgetModalData.proposal} 
-                    onClose={() => setBudgetModalData({ show: false, proposal: null })} 
-                    onSave={handleBudgetSave} 
-                />
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700', margin: 0 }}>Comercial</h2>
-                    <p style={{ color: 'var(--text-muted)', marginTop: '4px' }}>Gerencie propostas e acompanhe os projetos na fábrica.</p>
+                    <h1 style={{ fontSize: '2rem', margin: 0 }}>Gestão Comercial</h1>
+                    <p style={{ color: 'var(--text-muted)' }}>Acompanhamento de orçamentos e projetos</p>
                 </div>
-                <button className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setModalData({ show: true, proposal: null })}>
-                    <Plus size={18} /> Nova Proposta
+                <button className="btn-premium" onClick={() => { setSelectedProposal(null); setModalOpen(true); }}>
+                    <Plus size={20} /> Nova Proposta
                 </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-                {['ABERTO', 'APROVADO', 'REJEITADO'].map(s => {
-                    const cfg = statusConfig[s] || statusConfig.ABERTO;
-                    const Icon = cfg.icon;
-                    const count = proposals.filter(p => p.status === s).length;
-                    return (
-                        <div key={s} className="glass card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ background: cfg.bg, borderRadius: '8px', padding: '8px', color: cfg.color }}><Icon size={20} /></div>
-                            <div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: '700' }}>{count}</div>
-                                <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{cfg.label}</div>
-                            </div>
-                        </div>
-                    );
-                })}
+            <div className="glass card" style={{ marginBottom: '2rem', padding: '1rem', display: 'flex', gap: '1rem' }}>
+                <div style={{ flex: 1, position: 'relative' }}>
+                    <Search style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
+                    <input 
+                        type="text" 
+                        placeholder="Buscar por cliente, descrição ou número..." 
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        style={{ width: '100%', padding: '12px 12px 12px 45px', borderRadius: '10px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
+                    />
+                </div>
+                <button onClick={fetchProposals} className="btn-icon" title="Atualizar"><BellRing size={20} /></button>
             </div>
 
-            <div style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 0 30px rgba(99, 102, 241, 0.08)' }}>
-                <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-                    <Search size={18} style={{ position: 'absolute', left: '14px', top: '13px', color: 'var(--text-muted)' }} />
-                    <input placeholder="Buscar por cliente ou descrição..." style={{ paddingLeft: '44px', marginBottom: 0 }} value={search} onChange={e => setSearch(e.target.value)} />
-                </div>
-
-                {error && <div style={{ color: '#ef4444', padding: '1rem', textAlign: 'center' }}>{error}</div>}
-
+            <div className="glass card" style={{ padding: 0, overflow: 'hidden' }}>
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Carregando...</div>
+                    <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando dados...</div>
                 ) : (
-                    <div className="scrollable-content" style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                             <thead>
-                                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                                    {['Ref. OP', 'Cliente', 'Projeto', 'Autor', 'Valor', 'Fase', 'Status', 'Ações'].map(h => (
-                                        <th key={h} style={{ padding: '12px 16px', color: 'var(--text-muted)', fontWeight: '600', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                                    ))}
+                                <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)' }}>
+                                    <th style={{ padding: '1.25rem' }}>ID</th>
+                                    <th>Parceiro / Cliente</th>
+                                    <th>Descrição / Projeto</th>
+                                    <th>Status</th>
+                                    <th>Fase</th>
+                                    <th>Valor</th>
+                                    <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.length === 0 ? (
-                                    <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Nenhum resultado.</td></tr>
+                                    <tr><td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
                                 ) : (
                                     filtered.map(p => {
                                         const cfg = statusConfig[p.status] || statusConfig.ABERTO;
+                                        const canModify = user?.role === 'ADMIN' || user?.role === 'ADM' || p.user_id === user?.id;
+                                        
                                         return (
                                             <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                                <td style={{ padding: '14px 16px', color: 'var(--primary)', fontWeight: '800', fontSize: '0.9rem' }}>
-                                                    {p.phase === '1-Comercial' ? `PROP#${p.id}` : `PRJ#${p.id}`}
+                                                <td style={{ padding: '1.25rem', fontWeight: '700' }}>#{p.id}</td>
+                                                <td>
+                                                    <div style={{ fontWeight: '600' }}>{p.partner_name}</div>
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.partner_phone}</div>
                                                 </td>
-                                                <td style={{ padding: '14px 16px', fontWeight: '600' }}>{p.partner_name}</td>
-                                                <td style={{ padding: '14px 16px', color: 'var(--text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.description}</td>
-                                                <td style={{ padding: '14px 16px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
-                                                        <User size={14} style={{ color: 'var(--primary)' }} />
-                                                        {p.creator_name || 'Sistema'}
-                                                    </div>
-                                                </td>
-                                                <td style={{ padding: '14px 16px', fontWeight: 'bold', color: '#10b981' }}>
-                                                    {maskCurrency(p.value || 0)}
-                                                </td>
-                                                <td style={{ padding: '14px 16px' }}>
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text)', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                                                        {p.phase || '1-Comercial'}
+                                                <td>{p.description}</td>
+                                                <td>
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: `${cfg.color}15`, color: cfg.color, fontSize: '0.75rem', fontWeight: '700' }}>
+                                                        {cfg.icon} {p.status}
                                                     </span>
                                                 </td>
-                                                <td style={{ padding: '14px 16px' }}>
-                                                    <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700', background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
+                                                <td>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontSize: '0.85rem' }}>{p.phase || '1-Comercial'}</span>
+                                                        {p.has_monitored_event === 1 && <BellRing size={14} color="#eab308" title="Possui alerta monitorado" />}
+                                                    </div>
                                                 </td>
-                                                <td style={{ padding: '14px 16px' }}>
-                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title="Ver Orçamento" style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
-                                                        {p.has_monitored_event > 0 && (
-                                                            <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Ver Evento Monitorado" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', animation: 'pulse 2s infinite' }}><BellRing size={18} /></button>
-                                                        )}
+                                                <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
+                                                <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
+                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
                                                         {p.status === 'ABERTO' && (
-                                                            <>
-                                                                <button onClick={() => handleStatusChange(p, 'APROVADO')} title="Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
-                                                                <button onClick={() => handleStatusChange(p, 'REJEITADO')} title="Declinar" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><XCircle size={18} /></button>
-                                                            </>
+                                                            <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
                                                         )}
                                                         <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
-                                                        <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
-                                                        <button onClick={() => handleDelete(p.id)} title="Excluir" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                                        {canModify && (
+                                                            <>
+                                                                <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
+                                                                <button onClick={() => handleDelete(p.id)} title="Excluir" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -512,6 +611,11 @@ const Proposals = () => {
                     </div>
                 )}
             </div>
+
+            {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
+            {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => setEventModalData({ show: false, proposal: null })} />}
+            {completionModalData.show && <ProposalCompletionModal proposal={completionModalData.proposal} settings={settings} onClose={() => setCompletionModalData({ show: false, proposal: null })} onSave={() => { setCompletionModalData({ show: false, proposal: null }); fetchProposals(); }} />}
+            {budgetModalData.show && <BudgetModal proposal={budgetModalData.proposal} settings={settings} user={user} onClose={() => setBudgetModalData({ show: false, proposal: null })} onSave={() => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); }} />}
         </div>
     );
 };

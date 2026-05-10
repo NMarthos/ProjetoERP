@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Building2, Users, Plus, Edit3, Check, X, Shield } from 'lucide-react';
+import { Building2, Users, Plus, Edit3, Check, X, Shield, Camera } from 'lucide-react';
 
 const Security = () => {
     const [tenants, setTenants] = useState([]);
@@ -10,6 +10,8 @@ const Security = () => {
 
     const [tenantForm, setTenantForm] = useState(null);
     const [userForm, setUserForm] = useState(null);
+    const [uploadingLogo, setUploadingLogo] = useState(false);
+    const fileInputRef = useRef(null);
 
     const fetchData = async () => {
         setLoading(true);
@@ -29,6 +31,26 @@ const Security = () => {
     useEffect(() => {
         fetchData();
     }, []);
+
+    const handleLogoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploadingLogo(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setTenantForm({ ...tenantForm, logo_url: response.data.url });
+        } catch (err) {
+            alert('Erro no upload da logomarca.');
+        } finally {
+            setUploadingLogo(false);
+        }
+    };
 
     const saveTenant = async (e) => {
         e.preventDefault();
@@ -66,7 +88,7 @@ const Security = () => {
         <div className="fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Segurança / Contas e Usuários</h2>
+                    <h2 style={{ fontSize: '1.8rem', fontWeight: '700' }}>Contas e Usuários</h2>
                     <p style={{ color: 'var(--text-muted)' }}>Gerencie as empresas e as contas de acesso.</p>
                 </div>
             </div>
@@ -80,7 +102,7 @@ const Security = () => {
                             <Building2 size={20} color="var(--primary)" />
                             <h3 style={{ margin: 0 }}>Contas (Empresas)</h3>
                         </div>
-                        <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setTenantForm({ name: '', document: '', active: 1 })}>
+                        <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setTenantForm({ name: '', document: '', logo_url: '', active: 1 })}>
                             <Plus size={16} /> Nova
                         </button>
                     </div>
@@ -88,10 +110,54 @@ const Security = () => {
                     {tenantForm && (
                         <form onSubmit={saveTenant} style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
                             <h4 style={{ marginBottom: '1rem' }}>{tenantForm.id ? 'Editar Conta' : 'Nova Conta'}</h4>
-                            <label>Nome da Empresa</label>
+                            
+                            <label>Nome da Empresa *</label>
                             <input value={tenantForm.name} onChange={e => setTenantForm({...tenantForm, name: e.target.value})} required />
+                            
                             <label>Documento (CNPJ/CPF)</label>
                             <input value={tenantForm.document || ''} onChange={e => setTenantForm({...tenantForm, document: e.target.value})} />
+
+                            <label>Logomarca (Imagem)</label>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '1rem' }}>
+                                <input 
+                                    value={tenantForm.logo_url || ''} 
+                                    onChange={e => setTenantForm({...tenantForm, logo_url: e.target.value})} 
+                                    placeholder="URL ou Upload..." 
+                                    style={{ marginBottom: 0 }}
+                                />
+                                <input 
+                                    type="file" 
+                                    ref={fileInputRef} 
+                                    style={{ display: 'none' }} 
+                                    onChange={handleLogoUpload} 
+                                    accept="image/*"
+                                />
+                                <button 
+                                    type="button" 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="btn-premium"
+                                    style={{ padding: '8px', minWidth: '40px' }}
+                                    disabled={uploadingLogo}
+                                >
+                                    {uploadingLogo ? '...' : <Camera size={18} />}
+                                </button>
+                            </div>
+                            
+                            {tenantForm.logo_url && (
+                                <div style={{ marginBottom: '1rem', textAlign: 'center', position: 'relative' }}>
+                                    <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prévia:</p>
+                                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                                        <img src={tenantForm.logo_url} alt="Logo Preview" style={{ maxWidth: '150px', maxHeight: '80px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff', padding: '5px' }} />
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setTenantForm({...tenantForm, logo_url: ''})}
+                                            style={{ position: 'absolute', top: '-10px', right: '-10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             
                             {tenantForm.id && (
                                 <>
@@ -128,9 +194,16 @@ const Security = () => {
                                         transition: 'all 0.2s'
                                     }}
                                 >
-                                    <div>
-                                        <strong style={{ display: 'block' }}>{t.name}</strong>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {t.id} {t.document ? `| Doc: ${t.document}` : ''}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        {t.logo_url ? (
+                                            <img src={t.logo_url} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain', background: '#fff', borderRadius: '4px' }} />
+                                        ) : (
+                                            <div style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px' }}><Building2 size={16} /></div>
+                                        )}
+                                        <div>
+                                            <strong style={{ display: 'block' }}>{t.name}</strong>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {t.id} {t.document ? `| Doc: ${t.document}` : ''}</span>
+                                        </div>
                                     </div>
                                     <Edit3 size={16} color="var(--text-muted)" onClick={(e) => { e.stopPropagation(); setTenantForm(t); }} />
                                 </div>

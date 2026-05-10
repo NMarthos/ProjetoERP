@@ -57,7 +57,12 @@ async function start() {
         app.post('/api/login', async (req, res) => {
             const { email, password } = req.body;
             try {
-                const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+                const user = await db.get(`
+                    SELECT u.*, t.logo_url 
+                    FROM users u 
+                    JOIN tenants t ON u.tenant_id = t.id 
+                    WHERE u.email = ?
+                `, [email]);
                 if (!user || !(await bcrypt.compare(password, user.password))) {
                     return res.status(401).json({ error: 'Credenciais inválidas' });
                 }
@@ -68,7 +73,16 @@ async function start() {
                 );
                 await db.run('INSERT INTO audit_logs (tenant_id, user_id, action, module) VALUES (?, ?, ?, ?)',
                     [user.tenant_id, user.id, 'LOGIN', 'AUTH']);
-                res.json({ token, user: { name: user.name, email: user.email, tenantId: user.tenant_id, role: user.role || 'ADMIN' } });
+                res.json({ 
+                    token, 
+                    user: { 
+                        name: user.name, 
+                        email: user.email, 
+                        tenantId: user.tenant_id, 
+                        role: user.role || 'ADMIN',
+                        logo_url: user.logo_url
+                    } 
+                });
             } catch (err) {
                 res.status(500).json({ error: 'Erro interno no servidor' });
             }
@@ -91,30 +105,50 @@ async function start() {
         });
 
         app.post('/api/partners', authMiddleware, async (req, res) => {
-            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes } = req.body;
+            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id } = req.body;
             try {
+                await db.run('BEGIN TRANSACTION');
                 const result = await db.run(
-                    `INSERT INTO partners (tenant_id, name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [req.tenantId, name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null]
+                    `INSERT INTO partners (tenant_id, name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [req.tenantId, name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0]
                 );
+                
+                if (referrer_id) {
+                    await db.run('INSERT INTO referrals (tenant_id, client_id, referrer_id, notes) VALUES (?, ?, ?, ?)',
+                        [req.tenantId, result.lastID, referrer_id, 'Indicação automática']);
+                }
+                
+                await db.run('COMMIT');
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
+                await db.run('ROLLBACK');
                 console.error("Erro no POST /api/partners:", err);
                 res.status(500).json({ error: 'Erro ao criar parceiro' });
             }
         });
 
         app.put('/api/partners/:id', authMiddleware, async (req, res) => {
-            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes } = req.body;
+            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id } = req.body;
             try {
+                await db.run('BEGIN TRANSACTION');
                 await db.run(
-                    `UPDATE partners SET name=?, type=?, document=?, email=?, phone=?, address=?, address_num=?, address_complement=?, address_neighborhood=?, address_cep=?, address_city=?, notes=?
+                    `UPDATE partners SET name=?, type=?, document=?, email=?, phone=?, address=?, address_num=?, address_complement=?, address_neighborhood=?, address_cep=?, address_city=?, notes=?, commission_percentage=?
                     WHERE id=? AND tenant_id=?`,
-                    [name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, req.params.id, req.tenantId]
+                    [name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0, req.params.id, req.tenantId]
                 );
+
+                // Update referral
+                await db.run('DELETE FROM referrals WHERE client_id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
+                if (referrer_id) {
+                    await db.run('INSERT INTO referrals (tenant_id, client_id, referrer_id, notes) VALUES (?, ?, ?, ?)',
+                        [req.tenantId, req.params.id, referrer_id, 'Indicação automática']);
+                }
+
+                await db.run('COMMIT');
                 res.json({ ok: true });
             } catch (err) {
+                await db.run('ROLLBACK');
                 console.error("Erro no PUT /api/partners/:id:", err);
                 res.status(500).json({ error: 'Erro ao atualizar parceiro' });
             }
@@ -289,16 +323,57 @@ async function start() {
         // --- PROPOSALS ---
         app.get('/api/proposals', authMiddleware, async (req, res) => {
             try {
+                // Busca orçamentos com info do parceiro e comissão de quem indicou
                 const proposals = await db.all(`
-                    SELECT p.*, pt.name as partner_name, u.name as creator_name,
+                    SELECT p.*, pt.name as partner_name, pt.phone as partner_phone, pt.email as partner_email, 
+                    u.name as creator_name,
+                    ref_p.commission_percentage as referrer_commission,
                     (SELECT COUNT(*) FROM proposal_events e WHERE e.proposal_id = p.id AND e.monitor = 1) as has_monitored_event 
                     FROM proposals p 
                     JOIN partners pt ON p.partner_id = pt.id 
                     LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN referrals ref ON p.partner_id = ref.client_id AND p.tenant_id = ref.tenant_id
+                    LEFT JOIN partners ref_p ON ref.referrer_id = ref_p.id
                     WHERE p.tenant_id = ?`, [req.tenantId]);
-                res.json(proposals);
+                
+                // Busca parâmetros globais para cálculo
+                const taxes = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
+                const markup = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"', [req.tenantId]);
+                const maxFinance = await db.get('SELECT MAX(finance_cost_percentage) as max_val FROM payment_conditions WHERE tenant_id = ?', [req.tenantId]);
+
+                res.json({
+                    proposals,
+                    settings: {
+                        taxes: taxes ? parseFloat(taxes.value) : 0,
+                        markup: markup ? parseFloat(markup.value) : 0,
+                        financeCost: maxFinance ? parseFloat(maxFinance.max_val || 0) : 0
+                    }
+                });
             } catch (err) {
+                console.error("GET proposals error:", err);
                 res.status(500).json({ error: 'Erro ao buscar orçamentos' });
+            }
+        });
+
+        app.get('/api/proposals/:id', authMiddleware, async (req, res) => {
+            try {
+                const proposal = await db.get(`
+                    SELECT p.*, pt.name as partner_name, pt.phone as partner_phone, pt.email as partner_email,
+                    u.name as creator_name,
+                    ref_p.name as referrer_name,
+                    ref_p.commission_percentage as referrer_commission
+                    FROM proposals p 
+                    JOIN partners pt ON p.partner_id = pt.id 
+                    LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN referrals ref ON p.partner_id = ref.client_id AND p.tenant_id = ref.tenant_id
+                    LEFT JOIN partners ref_p ON ref.referrer_id = ref_p.id
+                    WHERE p.id = ? AND p.tenant_id = ?`, [req.params.id, req.tenantId]);
+                
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
+                res.json(proposal);
+            } catch (err) {
+                console.error("GET proposal error:", err);
+                res.status(500).json({ error: 'Erro ao buscar orçamento' });
             }
         });
 
@@ -320,29 +395,44 @@ async function start() {
         });
 
         app.put('/api/proposals/:id', authMiddleware, async (req, res) => {
-            const { description, value, status, partner_id, phase, budget_data } = req.body;
+            const body = req.body;
             try {
-                const old = await db.get('SELECT phase FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
-                const currentPhase = old ? old.phase : '1-Comercial';
+                // Permission Check: Owner or Admin
+                const proposal = await db.get('SELECT user_id, phase FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
                 
-                let query = 'UPDATE proposals SET description=?, value=?, status=?, partner_id=?';
-                let params = [description, value, status, partner_id];
-                
-                if (budget_data !== undefined) {
-                    query += ', budget_data=?';
-                    params.push(budget_data);
+                const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'ADM';
+                if (proposal.user_id !== req.user.id && !isAdmin) {
+                    return res.status(403).json({ error: 'Acesso negado: Você não é o responsável por esta proposta.' });
                 }
 
-                if (phase && phase !== currentPhase) {
-                    query += ', phase=?, phase_date=CURRENT_TIMESTAMP';
-                    params.push(phase);
+                const currentPhase = proposal.phase || '1-Comercial';
+                
+                let setClauses = [];
+                let params = [];
+                
+                const fields = ['description', 'value', 'status', 'partner_id', 'budget_data', 'fabrication_days', 'assembly_days', 'payment_methods', 'payment_notes', 'pricing_snapshot'];
+                fields.forEach(field => {
+                    if (body[field] !== undefined) {
+                        setClauses.push(`${field}=?`);
+                        params.push(body[field]);
+                    }
+                });
+
+                if (body.phase && body.phase !== currentPhase) {
+                    setClauses.push('phase=?', 'phase_date=CURRENT_TIMESTAMP');
+                    params.push(body.phase);
                     await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
-                        [req.tenantId, req.params.id, currentPhase, phase, req.user.id]);
+                        [req.tenantId, req.params.id, currentPhase, body.phase, req.user.id]);
                 }
-                query += ' WHERE id=? AND tenant_id=?';
+
+                if (setClauses.length === 0) return res.json({ ok: true });
+
+                const query = `UPDATE proposals SET ${setClauses.join(', ')} WHERE id=? AND tenant_id=?`;
                 params.push(req.params.id, req.tenantId);
                 
                 await db.run(query, params);
+                console.log(`[API] Proposal ${req.params.id} updated successfully`);
                 res.json({ ok: true });
             } catch (err) {
                 console.error("PUT proposals error:", err);
@@ -379,6 +469,38 @@ async function start() {
             }
         });
 
+        // --- PROPOSAL ATTACHMENTS ---
+        app.get('/api/proposals/:id/attachments', authMiddleware, async (req, res) => {
+            try {
+                const attachments = await db.all('SELECT * FROM proposal_attachments WHERE proposal_id=? AND tenant_id=?', 
+                    [req.params.id, req.tenantId]);
+                res.json(attachments);
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao buscar anexos' });
+            }
+        });
+
+        app.post('/api/proposals/:id/attachments', authMiddleware, async (req, res) => {
+            const { name, url, type } = req.body;
+            try {
+                await db.run('INSERT INTO proposal_attachments (tenant_id, proposal_id, name, url, type) VALUES (?, ?, ?, ?, ?)',
+                    [req.tenantId, req.params.id, name, url, type]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao salvar anexo' });
+            }
+        });
+
+        app.delete('/api/attachments/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM proposal_attachments WHERE id=? AND tenant_id=?', 
+                    [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao remover anexo' });
+            }
+        });
+
         app.post('/api/proposals/:id/events', authMiddleware, async (req, res) => {
             const { event_date, event_time, description, monitor } = req.body;
             try {
@@ -407,6 +529,15 @@ async function start() {
 
         app.delete('/api/proposals/:id', authMiddleware, async (req, res) => {
             try {
+                // Permission Check: Owner or Admin
+                const proposal = await db.get('SELECT user_id FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
+                
+                const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'ADM';
+                if (proposal.user_id !== req.user.id && !isAdmin) {
+                    return res.status(403).json({ error: 'Acesso negado: Você não tem permissão para excluir este orçamento.' });
+                }
+
                 await db.run('DELETE FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
                 res.json({ ok: true });
             } catch (err) {
@@ -461,11 +592,91 @@ async function start() {
             }
         });
 
+        // --- PAYMENT METHODS ---
+        app.get('/api/payment-methods', authMiddleware, async (req, res) => {
+            try {
+                const methods = await db.all('SELECT * FROM payment_methods WHERE tenant_id = ? ORDER BY name ASC', [req.tenantId]);
+                for (let method of methods) {
+                    method.conditions = await db.all('SELECT * FROM payment_conditions WHERE payment_method_id = ? AND tenant_id = ?', [method.id, req.tenantId]);
+                }
+                res.json(methods);
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao buscar formas de pagamento' });
+            }
+        });
+
+        app.post('/api/payment-methods', authMiddleware, async (req, res) => {
+            const { name, active } = req.body;
+            try {
+                const result = await db.run('INSERT INTO payment_methods (tenant_id, name, active) VALUES (?, ?, ?)',
+                    [req.tenantId, name, active ?? 1]);
+                res.status(201).json({ id: result.lastID });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao criar forma de pagamento' });
+            }
+        });
+
+        app.put('/api/payment-methods/:id', authMiddleware, async (req, res) => {
+            const { name, active } = req.body;
+            try {
+                await db.run('UPDATE payment_methods SET name=?, active=? WHERE id=? AND tenant_id=?',
+                    [name, active, req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao atualizar forma de pagamento' });
+            }
+        });
+
+        app.delete('/api/payment-methods/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM payment_methods WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao excluir forma de pagamento' });
+            }
+        });
+
+        // --- PAYMENT CONDITIONS ---
+        app.post('/api/payment-conditions', authMiddleware, async (req, res) => {
+            const { payment_method_id, title, discount_percentage, finance_cost_percentage, installments, down_payment_percentage } = req.body;
+            try {
+                const result = await db.run(
+                    'INSERT INTO payment_conditions (tenant_id, payment_method_id, title, discount_percentage, finance_cost_percentage, installments, down_payment_percentage) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [req.tenantId, payment_method_id, title, discount_percentage || 0, finance_cost_percentage || 0, installments || 1, down_payment_percentage || 0]
+                );
+                res.status(201).json({ id: result.lastID });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao criar condição de pagamento' });
+            }
+        });
+
+        app.put('/api/payment-conditions/:id', authMiddleware, async (req, res) => {
+            const { title, discount_percentage, finance_cost_percentage, installments, down_payment_percentage } = req.body;
+            try {
+                await db.run(
+                    'UPDATE payment_conditions SET title=?, discount_percentage=?, finance_cost_percentage=?, installments=?, down_payment_percentage=? WHERE id=? AND tenant_id=?',
+                    [title, discount_percentage, finance_cost_percentage || 0, installments, down_payment_percentage, req.params.id, req.tenantId]
+                );
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao atualizar condição de pagamento' });
+            }
+        });
+
+        app.delete('/api/payment-conditions/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM payment_conditions WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao excluir condição de pagamento' });
+            }
+        });
+
         // --- SECURITY (TENANTS & USERS) ---
         app.get('/api/security/tenants', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
             try {
-                const tenants = await db.all('SELECT id, name, cnpj as document, active, created_at FROM tenants ORDER BY id ASC');
+                const tenants = await db.all('SELECT id, name, cnpj as document, logo_url, active, created_at FROM tenants ORDER BY id ASC');
                 res.json(tenants);
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao buscar contas' });
@@ -474,9 +685,9 @@ async function start() {
 
         app.post('/api/security/tenants', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { name, document } = req.body;
+            const { name, document, logo_url } = req.body;
             try {
-                const result = await db.run('INSERT INTO tenants (name, cnpj) VALUES (?, ?)', [name, document]);
+                const result = await db.run('INSERT INTO tenants (name, cnpj, logo_url) VALUES (?, ?, ?)', [name, document, logo_url]);
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
                 console.error("Erro no POST /api/security/tenants:", err);
@@ -486,9 +697,9 @@ async function start() {
 
         app.put('/api/security/tenants/:id', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { name, document, active } = req.body;
+            const { name, document, logo_url, active } = req.body;
             try {
-                await db.run('UPDATE tenants SET name=?, cnpj=?, active=? WHERE id=?', [name, document, active, req.params.id]);
+                await db.run('UPDATE tenants SET name=?, cnpj=?, logo_url=?, active=? WHERE id=?', [name, document, logo_url, active, req.params.id]);
                 res.json({ ok: true });
             } catch (err) {
                 console.error("Erro no PUT /api/security/tenants/:id:", err);
@@ -523,6 +734,49 @@ async function start() {
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao criar usuário' });
+            }
+        });
+
+        // --- TENANT PARAMETERS ---
+        app.get('/api/parameters', authMiddleware, async (req, res) => {
+            try {
+                const params = await db.all('SELECT * FROM tenant_parameters WHERE tenant_id = ? ORDER BY key ASC', [req.tenantId]);
+                res.json(params);
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao buscar parâmetros' });
+            }
+        });
+
+        app.post('/api/parameters', authMiddleware, async (req, res) => {
+            const { key, type, value, description } = req.body;
+            try {
+                // Upsert logic
+                const existing = await db.get('SELECT id FROM tenant_parameters WHERE tenant_id = ? AND key = ?', [req.tenantId, key]);
+                if (existing) {
+                    await db.run(
+                        'UPDATE tenant_parameters SET type=?, value=?, description=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                        [type, value, description, existing.id]
+                    );
+                    res.json({ id: existing.id, updated: true });
+                } else {
+                    const result = await db.run(
+                        'INSERT INTO tenant_parameters (tenant_id, key, type, value, description) VALUES (?, ?, ?, ?, ?)',
+                        [req.tenantId, key, type, value, description]
+                    );
+                    res.status(201).json({ id: result.lastID, created: true });
+                }
+            } catch (err) {
+                console.error("Erro no POST /api/parameters:", err);
+                res.status(500).json({ error: 'Erro ao salvar parâmetro' });
+            }
+        });
+
+        app.delete('/api/parameters/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM tenant_parameters WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao excluir parâmetro' });
             }
         });
 
