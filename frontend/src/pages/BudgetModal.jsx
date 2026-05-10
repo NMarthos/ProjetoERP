@@ -4,7 +4,7 @@ import { X, Plus, Search, Trash2, Check, LayoutGrid, PackagePlus, PlusCircle, Pe
 import { maskCurrency, parseCurrency } from '../utils/masks';
 import { createPortal } from 'react-dom';
 
-const BudgetModal = ({ proposal, settings, user, onClose, onSave }) => {
+const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint = false }) => {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -108,6 +108,12 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave }) => {
 
         loadProposalData();
         fetchGlobalAttachments();
+
+        // If opened from Proposal Completion Modal, jump straight to print preview
+        if (autoShowPrint) {
+            setPrintType('PROPOSAL');
+            setShowPrint(true);
+        }
     }, [proposal.id]);
 
     const fetchGlobalAttachments = async () => {
@@ -938,7 +944,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave }) => {
                             <div style={{ fontWeight: 'bold', color: '#1e293b' }}>Visualização de Impressão</div>
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button onClick={handlePrint} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Imprimir Agora</button>
-                                <button onClick={() => setShowPrint(false)} style={{ background: '#64748b', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Fechar</button>
+                                <button onClick={() => autoShowPrint ? onClose() : setShowPrint(false)} style={{ background: '#64748b', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Fechar</button>
                             </div>
                         </div>
 

@@ -248,7 +248,7 @@ const EventModal = ({ proposal, onClose, onSave }) => {
     );
 };
 
-const ProposalCompletionModal = ({ proposal, onClose, onSave, settings }) => {
+const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settingsProp, onPrint }) => {
     const [form, setForm] = useState({ 
         status: 'ABERTO', 
         phase: '1-Comercial', 
@@ -258,95 +258,88 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings }) => {
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
-    const [fullscreenImage, setFullscreenImage] = useState(null);
     const [availableMethods, setAvailableMethods] = useState([]);
-    const [selectedMethodId, setSelectedMethodId] = useState('');
+    const [liveSettings, setLiveSettings] = useState(settingsProp);
+    const [fullscreenImage, setFullscreenImage] = useState(null);
 
     useEffect(() => {
-        if (proposal) {
-            setForm({
-                status: proposal.status || 'ABERTO',
-                phase: proposal.phase || '1-Comercial',
-                description: proposal.description || '',
-                payment_methods: proposal.payment_methods || '',
-                payment_notes: proposal.payment_notes || ''
-            });
-            fetchAvailablePaymentMethods();
-        }
+        if (!proposal) return;
+        setForm({
+            status: proposal.status || 'ABERTO',
+            phase: proposal.phase || '1-Comercial',
+            description: proposal.description || '',
+            payment_methods: proposal.payment_methods || '',
+            payment_notes: proposal.payment_notes || ''
+        });
+        // Fetch fresh settings (aligned with BudgetModal)
+        api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
+        api.get('/payment-methods')
+            .then(r => setAvailableMethods(r.data.filter(m => m.active)))
+            .catch(() => {});
     }, [proposal]);
 
-    const fetchAvailablePaymentMethods = async () => {
-        try {
-            const r = await api.get('/payment-methods');
-            const activeMethods = r.data.filter(m => m.active);
-            setAvailableMethods(activeMethods);
-            if (activeMethods.length > 0) {
-                setSelectedMethodId(activeMethods[0].id);
-            }
-        } catch (err) {
-            console.error('Erro ao carregar formas de pagamento:', err);
-        }
-    };
-
     let budgetItems = [];
-    try {
-        budgetItems = proposal.budget_data ? JSON.parse(proposal.budget_data) : [];
-    } catch(e) { budgetItems = []; }
+    try { budgetItems = proposal?.budget_data ? JSON.parse(proposal.budget_data) : []; } catch(e) {}
 
     const calculateItemSaleTotal = (item) => {
         const cost = item.products.reduce((acc, p) => acc + (p.total || 0), 0);
-        const { taxes, markup, financeCost } = settings;
-        const comm = proposal.referrer_commission || 0;
-        
-        // Fórmula: Custo / (1 - (Imposto + Markup + Custo Financeiro + Comissão))
-        const total = cost / (1 - (taxes / 100) - (markup / 100) - (financeCost / 100) - (comm / 100));
-        return total || 0;
+        const { taxes = 0, markup = 0, financeCost = 0 } = liveSettings || {};
+        const comm = proposal?.referrer_commission || 0;
+        const divisor = 1 - (taxes/100) - (markup/100) - (financeCost/100) - (comm/100);
+        return divisor > 0 ? cost / divisor : 0;
     };
 
     const grandTotal = budgetItems.reduce((acc, item) => acc + calculateItemSaleTotal(item), 0);
 
-    const handleSelectCondition = (condition, methodName) => {
-        const discountVal = grandTotal * (condition.discount_percentage / 100);
-        const totalComDesconto = grandTotal - discountVal;
-        
-        // Novo: Aplicação do Custo Financeiro
-        const custoFinanceiroVal = totalComDesconto * ((condition.finance_cost_percentage || 0) / 100);
-        const totalFinal = totalComDesconto + custoFinanceiroVal;
-        
-        const entradaVal = totalFinal * (condition.down_payment_percentage / 100);
-        const saldo = totalFinal - entradaVal;
-        const valorParcela = condition.installments > 0 ? saldo / condition.installments : 0;
+    // Most recent active method (same rule as printed proposal)
+    const activeMethod = [...availableMethods].slice(-1)[0];
 
-        let text = `${methodName}: ${condition.title}\n`;
-        text += `• Total Original: ${maskCurrency(grandTotal)}\n`;
-        if (discountVal > 0) text += `• Desconto (${condition.discount_percentage}%): -${maskCurrency(discountVal)}\n`;
-        if (custoFinanceiroVal > 0) text += `• Custo Financeiro (${condition.finance_cost_percentage}%): +${maskCurrency(custoFinanceiroVal)}\n`;
-        text += `• Total Final: ${maskCurrency(totalFinal)}\n`;
-        if (entradaVal > 0) text += `• Entrada (${condition.down_payment_percentage}%): ${maskCurrency(entradaVal)}\n`;
-        
-        if (condition.installments > 1) {
-            text += `• Saldo: ${condition.installments}x de ${maskCurrency(valorParcela)}`;
-        } else if (condition.installments === 1 && saldo > 0) {
-            text += `• Saldo: 1x de ${maskCurrency(saldo)}`;
-        } else if (saldo === 0 && entradaVal > 0) {
-            text += `• Pagamento integral na entrada.`;
+    // Max finance cost across all conditions → used for à vista discount
+    const maxFinancePct = activeMethod
+        ? Math.max(0, ...activeMethod.conditions.map(c => c.finance_cost_percentage || 0))
+        : 0;
+    const aVistaExtraDiscountPct = parseFloat((maxFinancePct * 0.70).toFixed(2));
+
+    const calcCondition = (cond) => {
+        const installments = cond.installments || 1;
+        const isAVista = installments === 1;
+        const totalDiscountPct = isAVista
+            ? (cond.discount_percentage || 0) + aVistaExtraDiscountPct
+            : (cond.discount_percentage || 0);
+        const discountedTotal = grandTotal * (1 - totalDiscountPct / 100);
+        const financedTotal   = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
+        const downPct         = cond.down_payment_percentage || 0;
+        const downValue       = financedTotal * (downPct / 100);
+        const remaining       = financedTotal - downValue;
+        const installAmt      = installments > 1 ? remaining / installments : financedTotal;
+        return { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt };
+    };
+
+    const handleSelectCondition = (cond, idx) => {
+        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+        let text = `Opção ${idx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
+        text += `• Total: ${maskCurrency(financedTotal)}\n`;
+        if (isAVista) {
+            text += `• À vista: ${maskCurrency(financedTotal)}`;
+        } else if (downPct > 0) {
+            text += `• Entrada (${downPct}%): ${maskCurrency(downValue)}\n`;
+            text += `• + ${installments}x de ${maskCurrency(installAmt)}`;
+        } else {
+            text += `• ${installments}x de ${maskCurrency(installAmt)}`;
         }
-
         setForm(f => ({ ...f, payment_methods: text }));
     };
 
     const handleAction = async (newStatus) => {
-        setSaving(true);
-        setError('');
+        setSaving(true); setError('');
         try {
             const payload = {
                 status: newStatus,
                 payment_methods: form.payment_methods,
                 payment_notes: form.payment_notes
             };
-            if (newStatus === 'APROVADO' && form.phase === '1-Comercial') {
-                payload.phase = '2-Fábrica/Técnica';
-            }
+            if (newStatus === 'APROVADO' && form.phase === '1-Comercial') payload.phase = '2-Fábrica/Técnica';
             await api.put(`/proposals/${proposal.id}`, payload);
             onSave();
         } catch (err) {
@@ -357,15 +350,19 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings }) => {
 
     if (!proposal) return null;
 
-    return createPortal(
+
+    return (
+        <>
+        {createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '1000px', width: '95%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-content" style={{ maxWidth: '1400px', width: '98%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '95vh' }}>
+                {/* HEADER */}
                 <div style={{ background: 'var(--card-bg)', borderBottom: '2px solid var(--border)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '2rem' }}>
                         <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Dados do Cliente</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Cliente</div>
                             <div style={{ fontWeight: '800', fontSize: '1.2rem', color: 'var(--primary)' }}>{proposal.partner_name}</div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{proposal.partner_phone} • {proposal.partner_email || 'E-mail não informado'}</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{proposal.partner_phone}</div>
                         </div>
                         <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Identificação</div>
@@ -373,99 +370,205 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings }) => {
                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Criado em: {new Date(proposal.created_at).toLocaleDateString('pt-BR')}</div>
                         </div>
                     </div>
-                    <button onClick={onClose} className="btn-icon"><X size={24} /></button>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        {onPrint && (
+                            <button
+                                onClick={onPrint}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--primary)', background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem' }}
+                            >
+                                📄 Gerar Proposta
+                            </button>
+                        )}
+                        <button onClick={onClose} className="btn-icon"><X size={24} /></button>
+                    </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '0', flex: 1, overflow: 'hidden' }}>
-                    <div style={{ borderRight: '2px solid var(--border)', padding: '2rem', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
-                        <h4 style={{ margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem', color: 'white' }}>
-                            <FileText size={20} color="var(--primary)" /> Detalhamento dos Itens
+                {/* BODY — 3 columns: items | images | payment */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.2fr', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                    {/* COL 1 — items */}
+                    <div style={{ borderRight: '2px solid var(--border)', padding: '1.5rem', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
+                        <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1rem', color: 'white' }}>
+                            <FileText size={18} color="var(--primary)" /> Itens do Orçamento
                         </h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {budgetItems.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>Nenhum item adicionado ao orçamento.</div>
-                            ) : (
-                                budgetItems.map((item, idx) => (
-                                    <div key={idx} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                            <div style={{ fontWeight: '700', fontSize: '1rem' }}>{item.name}</div>
-                                            <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1.1rem' }}>{maskCurrency(calculateItemSaleTotal(item))}</div>
-                                        </div>
-                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '10px', fontStyle: 'italic' }}>
-                                            {item.description || 'Sem descrição adicional'}
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px' }}>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                <strong>Produção:</strong> {proposal.fabrication_days} dias
-                                            </div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                <strong>Montagem:</strong> {proposal.assembly_days} dias
-                                            </div>
-                                        </div>
+                                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>Nenhum item no orçamento.</div>
+                            ) : budgetItems.map((item, i) => (
+                                <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                                        <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{item.name}</div>
+                                        <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1rem' }}>{maskCurrency(calculateItemSaleTotal(item))}</div>
                                     </div>
-                                ))
-                            )}
+                                    {item.description && (
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{item.description}</div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
-
-                        <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '16px', border: '2px solid #10b981', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ marginTop: '1.5rem', padding: '1.25rem', background: 'rgba(16,185,129,0.1)', borderRadius: '16px', border: '2px solid #10b981', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                                <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: '800', textTransform: 'uppercase', marginBottom: '2px' }}>Valor Total da Proposta</div>
-                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Baseado nos custos e margens configuradas</div>
+                                <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: '800', textTransform: 'uppercase', marginBottom: '2px' }}>Valor Total</div>
+                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>Parâmetros atuais</div>
                             </div>
-                            <div style={{ fontSize: '2rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
                         </div>
                     </div>
 
-                    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'var(--card-bg)' }}>
-                        <div>
-                            <h4 style={{ margin: '0 0 1.25rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem' }}>
-                                <ClipboardCheck size={20} color="var(--primary)" /> Condições de Fechamento
-                            </h4>
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <label style={{ marginBottom: '12px', display: 'block', fontWeight: '700', fontSize: '0.9rem' }}>
-                                    Forma Ativa: <span style={{ color: 'var(--primary)', fontWeight: '800' }}>{availableMethods.find(m => m.id == selectedMethodId)?.name || 'Nenhuma forma ativa'}</span>
-                                </label>
-                                <select value={selectedMethodId} onChange={(e) => setSelectedMethodId(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'rgba(0,0,0,0.2)', color: 'white', border: '1px solid var(--border)', fontSize: '1rem' }}>
-                                    <option value="">Selecione...</option>
-                                    {availableMethods.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                </select>
-                            </div>
-                            {selectedMethodId && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1.5rem' }}>
-                                    {availableMethods.find(m => m.id == selectedMethodId)?.conditions?.map(c => (
-                                        <button key={c.id} onClick={() => handleSelectCondition(c, availableMethods.find(m => m.id == selectedMethodId).name)} className="btn-premium" style={{ padding: '6px 14px', fontSize: '0.8rem', borderRadius: '8px' }}>
-                                            {c.title}
-                                        </button>
+                    {/* COL 2 — images */}
+                    <div style={{ borderRight: '2px solid var(--border)', padding: '1.5rem', overflowY: 'auto', background: 'rgba(0,0,0,0.05)' }}>
+                        <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1rem', color: 'white' }}>
+                            <Image size={18} color="var(--primary)" /> Imagens da Proposta
+                        </h4>
+                        {(() => {
+                            const isImageAtt = (a) =>
+                                (a.type && a.type.includes('image')) ||
+                                /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(a.url || a.name || '');
+                            const allImages = budgetItems.flatMap(item => {
+                                const atts = Array.isArray(item.attachments)
+                                    ? item.attachments
+                                    : (typeof item.attachments === 'string' ? (() => { try { return JSON.parse(item.attachments); } catch { return []; } })() : []);
+                                return atts.filter(isImageAtt).map(a => ({ ...a, itemName: item.name }));
+                            });
+                            return allImages.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', fontSize: '0.85rem' }}>
+                                    Nenhuma imagem anexada aos itens.
+                                </div>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                    {allImages.map((img, i) => (
+                                        <div key={i} style={{ position: 'relative', cursor: 'zoom-in' }} onClick={() => setFullscreenImage(img.url)}>
+                                            <img
+                                                src={img.url}
+                                                alt={img.itemName}
+                                                style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)' }}
+                                            />
+                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: '9px', padding: '3px 6px', borderRadius: '0 0 8px 8px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                                {img.itemName}
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
-                            )}
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <label style={{ marginBottom: '8px', display: 'block', fontWeight: '700' }}>Resumo Final</label>
-                                <textarea value={form.payment_methods} onChange={e => setForm(f => ({ ...f, payment_methods: e.target.value }))} style={{ width: '100%', minHeight: '150px', padding: '12px', borderRadius: '8px', border: '1.5px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.9rem' }} />
-                            </div>
-                            <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                                <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase', marginBottom: '4px' }}>Valor de Venda</div>
-                                <div style={{ fontSize: '2rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(proposal.value || 0)}</div>
-                            </div>
+                            );
+                        })()}
+                    </div>
+
+                    {/* RIGHT — payment conditions */}
+                    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'var(--card-bg)', overflowY: 'auto' }}>
+                        <h4 style={{ margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem' }}>
+                            <ClipboardCheck size={20} color="var(--primary)" /> Condições de Fechamento
+                        </h4>
+
+                        {activeMethod ? (
+                            <>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-1rem' }}>
+                                    Forma ativa: <strong style={{ color: 'white' }}>{activeMethod.name}</strong>
+                                    {aVistaExtraDiscountPct > 0 && (
+                                        <span style={{ color: '#16a34a', marginLeft: '8px' }}>• Desconto à vista: {aVistaExtraDiscountPct.toFixed(2)}%</span>
+                                    )}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    {activeMethod.conditions.map((cond, idx) => {
+                                        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => handleSelectCondition(cond, idx)}
+                                                style={{
+                                                    border: '1.5px solid',
+                                                    borderColor: isAVista ? '#86efac' : 'var(--border)',
+                                                    borderRadius: '12px',
+                                                    padding: '14px',
+                                                    background: isAVista ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.03)',
+                                                    cursor: 'pointer',
+                                                    transition: 'border-color 0.2s',
+                                                }}
+                                                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                                onMouseLeave={e => e.currentTarget.style.borderColor = isAVista ? '#86efac' : 'var(--border)'}
+                                            >
+                                                <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.5px' }}>
+                                                    Opção {idx + 1}
+                                                </div>
+                                                <div style={{ fontSize: '13px', fontWeight: '900', color: isAVista ? '#16a34a' : 'white', borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
+                                                    {isAVista ? (
+                                                        `À vista: ${maskCurrency(financedTotal)}`
+                                                    ) : downPct > 0 ? (
+                                                        <>
+                                                            <div>Entrada {downPct}%: <span style={{ color: '#6366f1' }}>{maskCurrency(downValue)}</span></div>
+                                                            <div>+ {installments}x de <span style={{ color: '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
+                                                        </>
+                                                    ) : (
+                                                        `${installments}x de ${maskCurrency(installAmt)}`
+                                                    )}
+                                                </div>
+                                                {totalDiscountPct > 0 && (
+                                                    <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
+                                                        Desconto: {totalDiscountPct.toFixed(2)}%
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Nenhuma forma de pagamento ativa encontrada.</div>
+                        )}
+
+                        <div>
+                            <label style={{ marginBottom: '8px', display: 'block', fontWeight: '700', fontSize: '0.85rem' }}>Resumo / Observações</label>
+                            <textarea
+                                value={form.payment_methods}
+                                onChange={e => setForm(f => ({ ...f, payment_methods: e.target.value }))}
+                                style={{ width: '100%', minHeight: '130px', padding: '12px', borderRadius: '8px', border: '1.5px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.85rem' }}
+                            />
                         </div>
                     </div>
                 </div>
 
-                <div style={{ background: 'rgba(0,0,0,0.3)', borderTop: '2px solid var(--border)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {/* FOOTER */}
+                <div style={{ background: 'rgba(0,0,0,0.3)', borderTop: '2px solid var(--border)', padding: '1.25rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ color: '#ef4444', fontSize: '0.9rem', fontWeight: '600' }}>{error}</div>
                     <div style={{ display: 'flex', gap: '1rem' }}>
                         <button onClick={() => handleAction('ARQUIVADO')} disabled={saving} className="btn-secondary">Arquivar</button>
-                        <button onClick={() => handleAction('REJEITADO')} disabled={saving} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', cursor: 'pointer', fontWeight: '700' }}>Declinar</button>
+                        <button onClick={() => handleAction('REJEITADO')} disabled={saving} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #ef4444', background: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer', fontWeight: '700' }}>Declinar</button>
                         <button onClick={() => handleAction('APROVADO')} disabled={saving} className="btn-premium" style={{ padding: '12px 40px', fontSize: '1.1rem' }}>{saving ? 'Processando...' : '✓ Aprovar e Iniciar Projeto'}</button>
                     </div>
                 </div>
             </div>
+
         </div>,
         document.body
+        )}
+        {fullscreenImage && createPortal(
+            <div
+                onClick={() => setFullscreenImage(null)}
+                style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.95)',
+                    zIndex: 99999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'zoom-out'
+                }}
+            >
+                <img
+                    src={fullscreenImage}
+                    alt="Visualização"
+                    style={{ maxWidth: '92%', maxHeight: '92vh', borderRadius: '12px', objectFit: 'contain', boxShadow: '0 0 80px rgba(0,0,0,0.9)' }}
+                />
+                <div style={{ position: 'absolute', top: '20px', right: '20px', color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem', background: 'rgba(0,0,0,0.5)', padding: '6px 14px', borderRadius: '8px' }}>
+                    Clique para fechar
+                </div>
+            </div>,
+            document.body
+        )}
+        </>
     );
 };
 
+
 // ── Página Principal ─────────────────────────────────────────────────────────
+
+
 
 const Proposals = ({ user }) => {
     const [proposals, setProposals] = useState([]);
@@ -614,8 +717,33 @@ const Proposals = ({ user }) => {
 
             {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
             {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => setEventModalData({ show: false, proposal: null })} />}
-            {completionModalData.show && <ProposalCompletionModal proposal={completionModalData.proposal} settings={settings} onClose={() => setCompletionModalData({ show: false, proposal: null })} onSave={() => { setCompletionModalData({ show: false, proposal: null }); fetchProposals(); }} />}
-            {budgetModalData.show && <BudgetModal proposal={budgetModalData.proposal} settings={settings} user={user} onClose={() => setBudgetModalData({ show: false, proposal: null })} onSave={() => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); }} />}
+            {completionModalData.show && <ProposalCompletionModal
+                proposal={completionModalData.proposal}
+                settings={settings}
+                onClose={() => setCompletionModalData({ show: false, proposal: null })}
+                onSave={() => { setCompletionModalData({ show: false, proposal: null }); fetchProposals(); }}
+                onPrint={() => {
+                    const p = completionModalData.proposal;
+                    setCompletionModalData({ show: false, proposal: null });
+                    setBudgetModalData({ show: true, proposal: p, autoShowPrint: true });
+                }}
+            />}
+            {budgetModalData.show && <BudgetModal
+                proposal={budgetModalData.proposal}
+                settings={settings}
+                user={user}
+                autoShowPrint={budgetModalData.autoShowPrint || false}
+                onClose={() => {
+                    const wasAutoShowPrint = budgetModalData.autoShowPrint;
+                    const p = budgetModalData.proposal;
+                    setBudgetModalData({ show: false, proposal: null });
+                    if (wasAutoShowPrint) {
+                        // Volta para a tela de conclusão da proposta
+                        setCompletionModalData({ show: true, proposal: p });
+                    }
+                }}
+                onSave={() => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); }}
+            />}
         </div>
     );
 };
