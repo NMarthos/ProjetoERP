@@ -1091,14 +1091,13 @@ const Proposals = ({ user }) => {
                                     <th>Parceiro / Cliente</th>
                                     <th>Descrição / Projeto</th>
                                     <th>Status</th>
-                                    <th>Fase</th>
                                     <th>Valor</th>
                                     <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.length === 0 ? (
-                                    <tr><td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
+                                    <tr><td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
                                 ) : (
                                     filtered.map(p => {
                                         const cfg = statusConfig[p.status] || statusConfig.ABERTO;
@@ -1116,12 +1115,6 @@ const Proposals = ({ user }) => {
                                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: `${cfg.color}15`, color: cfg.color, fontSize: '0.75rem', fontWeight: '700' }}>
                                                         {cfg.icon} {p.status}
                                                     </span>
-                                                </td>
-                                                <td>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <span style={{ fontSize: '0.85rem' }}>{p.phase || '1-Comercial'}</span>
-                                                        {p.has_monitored_event === 1 && <BellRing size={14} color="#eab308" title="Possui alerta monitorado" />}
-                                                    </div>
                                                 </td>
                                                 <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>

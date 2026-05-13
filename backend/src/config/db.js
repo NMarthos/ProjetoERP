@@ -268,7 +268,9 @@ async function initializeDatabase(db) {
         { table: 'payment_conditions', column: 'finance_cost_percentage', type: 'REAL DEFAULT 0' },
         { table: 'proposal_events', column: 'title', type: 'TEXT' },
         { table: 'proposal_events', column: 'type', type: 'TEXT DEFAULT "Anotacao"' },
-        { table: 'proposal_events', column: 'event_status', type: 'TEXT DEFAULT "ABERTO"' }
+        { table: 'proposal_events', column: 'event_status', type: 'TEXT DEFAULT "ABERTO"' },
+        { table: 'proposals', column: 'drive_folder_id', type: 'TEXT' },
+        { table: 'proposals', column: 'drive_folder_url', type: 'TEXT' }
     ];
 
     for (const m of migrations) {

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { X, Plus, Search, Trash2, Check, LayoutGrid, PackagePlus, PlusCircle, Pencil, User, ClipboardList, Paperclip, FileText, Upload, Image } from 'lucide-react';
-import { maskCurrency, parseCurrency } from '../utils/masks';
+import { X, Plus, Search, Trash2, PackagePlus, PlusCircle, Pencil, FileText, Image, Paperclip, LayoutGrid, ClipboardList, User, Loader2, Upload, Package } from 'lucide-react';
+import { maskCurrency, parseCurrency, maskPhone } from '../utils/masks';
 import { createPortal } from 'react-dom';
 
 const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint = false }) => {
@@ -25,9 +25,15 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const [editingQtyId, setEditingQtyId] = useState(null);
     const [customQtyInput, setCustomQtyInput] = useState({});
 
-    // New Product Modal
+    // New Product Modal (full form — matches Products page)
     const [showProductModal, setShowProductModal] = useState(false);
-    const [newProduct, setNewProduct] = useState({ name: '', unit: 'UN', value: '' });
+    const [editingProduct, setEditingProduct] = useState(null); // null = create, object = edit
+    const [newProduct, setNewProduct] = useState({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1 });
+    const [newProductDisplayValue, setNewProductDisplayValue] = useState('0,00');
+    const [newProductUploading, setNewProductUploading] = useState(false);
+    const [newProductSaving, setNewProductSaving] = useState(false);
+    const [manufacturers, setManufacturers] = useState([]);
+    const newProductFileRef = useRef(null);
     const [showPrint, setShowPrint] = useState(false);
     const [printType, setPrintType] = useState('PROPOSAL'); // 'PROPOSAL' or 'MATERIALS'
 
@@ -50,14 +56,23 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const [showPriceTooltip, setShowPriceTooltip] = useState(false);
     const isAdm = user?.role === 'ADMIN' || user?.role === 'ADM';
 
+    const fetchProducts = async () => {
+        try {
+            const res = await api.get('/products');
+            setProducts(res.data.filter(p => p.status === 1));
+        } catch { alert('Erro ao buscar produtos'); }
+        finally { setLoading(false); }
+    };
+
     useEffect(() => {
-        api.get('/products')
-            .then(res => setProducts(res.data.filter(p => p.status === 1)))
-            .catch(() => alert('Erro ao buscar produtos'))
-            .finally(() => setLoading(false));
+        fetchProducts();
 
         api.get('/payment-methods')
             .then(res => setPaymentMethods(res.data || []))
+            .catch(() => {});
+
+        api.get('/manufacturers')
+            .then(res => setManufacturers(res.data || []))
             .catch(() => {});
 
         // Always fetch fresh settings on open and rebuild the pricing snapshot
@@ -377,22 +392,55 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         document.title = oldTitle;
     };
 
-    const handleSaveNewProduct = async () => {
-        if (!newProduct.name.trim()) return alert('Informe o nome do produto.');
-        const val = parseCurrency(newProduct.value);
+    const handleNewProductPhotoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setNewProductUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
         try {
-            const res = await api.post('/products', {
-                name: newProduct.name,
-                unit: newProduct.unit,
-                value: val,
-                status: 1
-            });
-            setProducts([...products, res.data.product || res.data]);
-            setShowProductModal(false);
-            setNewProduct({ name: '', unit: 'UN', value: '' });
-        } catch (err) {
-            alert('Erro ao criar produto.');
-        }
+            const res = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            setNewProduct(p => ({ ...p, photo: res.data.url }));
+        } catch { alert('Erro no upload da imagem.'); }
+        finally { setNewProductUploading(false); }
+    };
+
+    const closeProductModal = () => {
+        setShowProductModal(false);
+        setEditingProduct(null);
+        setNewProduct({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1 });
+        setNewProductDisplayValue('0,00');
+    };
+
+    const handleOpenEditProduct = (product) => {
+        setEditingProduct(product);
+        setNewProduct({
+            name: product.name,
+            unit: product.unit,
+            value: product.value,
+            manufacturer_id: product.manufacturer_id || '',
+            photo: product.photo || '',
+            status: product.status ?? 1,
+        });
+        setNewProductDisplayValue(maskCurrency(product.value));
+        setShowProductModal(true);
+    };
+
+    const handleSaveNewProduct = async (e) => {
+        e.preventDefault();
+        if (!newProduct.name.trim()) return;
+        setNewProductSaving(true);
+        try {
+            const payload = { ...newProduct, manufacturer_id: newProduct.manufacturer_id || null };
+            if (editingProduct) {
+                await api.put(`/products/${editingProduct.id}`, payload);
+            } else {
+                await api.post('/products', payload);
+            }
+            await fetchProducts();
+            closeProductModal();
+        } catch { alert(editingProduct ? 'Erro ao atualizar produto.' : 'Erro ao criar produto.'); }
+        finally { setNewProductSaving(false); }
     };
 
     const handleFileUpload = async (e, type) => {
@@ -500,31 +548,105 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     </div>
                 )}
 
-                {/* CREATE PRODUCT MINI-MODAL */}
+                {/* CREATE PRODUCT MODAL — idêntico ao modal de Produtos e Serviços */}
                 {showProductModal && (
                     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '24px' }}>
-                        <div style={{ background: '#0f172a', border: '2.5px solid var(--primary)', padding: '2rem', borderRadius: '16px', width: '500px', maxWidth: '90%', boxShadow: '0 0 50px rgba(0,0,0,0.8)' }}>
-                            <h3 style={{ marginBottom: '1.5rem', color: 'var(--primary)' }}>Criar Novo Produto</h3>
-                            <div style={{ marginBottom: '1rem' }}>
-                                <label>Nome do Produto *</label>
-                                <input type="text" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="Ex: Dobradiça X" />
+                        <div style={{ background: '#0f172a', border: '2.5px solid var(--primary)', borderRadius: '16px', width: '520px', maxWidth: '95%', boxShadow: '0 0 60px rgba(0,0,0,0.9)', overflow: 'hidden' }}>
+                            {/* Header */}
+                            <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.3), rgba(99,102,241,0.1))', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Package size={20} /> {editingProduct ? 'Editar Produto / Serviço' : 'Novo Produto / Serviço'}
+                                </h3>
+                                <button onClick={closeProductModal} className="btn-icon"><X size={18} /></button>
                             </div>
-                            <div style={{ display: 'flex', gap: '15px', marginBottom: '1.5rem' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label>Unidade</label>
-                                    <select value={newProduct.unit} onChange={e => setNewProduct({...newProduct, unit: e.target.value})}>
-                                        {['UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'CHP', 'PC', 'DF', 'DM'].map(u => <option key={u} value={u}>{u}</option>)}
-                                    </select>
+
+                            <form onSubmit={handleSaveNewProduct} style={{ padding: '1.5rem' }}>
+                                {/* Photo + Name + Unit */}
+                                <div style={{ display: 'flex', gap: '16px', marginBottom: '1.25rem' }}>
+                                    {/* Photo upload */}
+                                    <div
+                                        onClick={() => newProductFileRef.current?.click()}
+                                        style={{ width: '110px', height: '110px', border: '2px dashed var(--border)', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', flexShrink: 0, background: 'rgba(255,255,255,0.02)', transition: 'border-color 0.2s' }}
+                                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                                    >
+                                        {newProductUploading ? (
+                                            <Loader2 size={28} style={{ color: 'var(--primary)', animation: 'spin 1s linear infinite' }} />
+                                        ) : newProduct.photo ? (
+                                            <img src={newProduct.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="Foto" />
+                                        ) : (
+                                            <>
+                                                <Upload size={24} style={{ color: 'var(--text-muted)' }} />
+                                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '6px', textAlign: 'center' }}>Upload Foto</span>
+                                            </>
+                                        )}
+                                        <input type="file" ref={newProductFileRef} hidden onChange={handleNewProductPhotoUpload} accept="image/*" />
+                                    </div>
+
+                                    {/* Name + Unit */}
+                                    <div style={{ flex: 1 }}>
+                                        <label>Nome *</label>
+                                        <input required value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Dobradiça Blum 110°" style={{ marginBottom: '12px' }} />
+                                        <label>Unidade</label>
+                                        <select value={newProduct.unit} onChange={e => setNewProduct(p => ({ ...p, unit: e.target.value }))}>
+                                            {[['CHP','Chapa'],['UN','Unidade'],['M','Metro'],['M2','Metro²'],['L','Litro'],['CXA','Caixa'],['PAR','Par'],['H','Hora'],['DIA','Dia'],['PC','Peça'],['DF','Diária fábrica'],['DM','Diária montagem']].map(([k,v]) => (
+                                                <option key={k} value={k}>{v}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <label>Valor Unitário</label>
-                                    <input type="text" value={newProduct.value} onChange={e => setNewProduct({...newProduct, value: maskCurrency(e.target.value)})} placeholder="R$ 0,00" />
+
+                                {/* Value + Manufacturer */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                                    <div>
+                                        <label>Valor Unitário (R$)</label>
+                                        <input
+                                            type="text"
+                                            value={newProductDisplayValue}
+                                            onChange={e => {
+                                                const fmt = maskCurrency(e.target.value);
+                                                setNewProductDisplayValue(fmt);
+                                                setNewProduct(p => ({ ...p, value: parseCurrency(fmt) }));
+                                            }}
+                                            style={{ textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label>Fabricante</label>
+                                        <select value={newProduct.manufacturer_id} onChange={e => setNewProduct(p => ({ ...p, manufacturer_id: e.target.value }))}>
+                                            <option value="">Nenhum</option>
+                                            {manufacturers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                                <button onClick={() => setShowProductModal(false)} className="btn-secondary" style={{ padding: '8px 16px' }}>Cancelar</button>
-                                <button onClick={handleSaveNewProduct} className="btn-premium" style={{ padding: '8px 20px' }}>Salvar Produto</button>
-                            </div>
+
+                                {/* Status — toggle switch */}
+                                <div
+                                    onClick={() => setNewProduct(p => ({ ...p, status: p.status === 1 ? 0 : 1 }))}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', padding: '12px 16px', background: newProduct.status === 1 ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)', borderRadius: '10px', border: `1px solid ${newProduct.status === 1 ? 'rgba(16,185,129,0.4)' : 'var(--border)'}`, cursor: 'pointer', transition: 'all 0.25s', userSelect: 'none' }}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: '700', fontSize: '0.88rem', color: newProduct.status === 1 ? '#10b981' : 'var(--text-muted)' }}>
+                                            Ativado no Catálogo
+                                        </div>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                            {newProduct.status === 1 ? 'Produto visível e disponível para orçamentos' : 'Produto oculto do catálogo'}
+                                        </div>
+                                    </div>
+                                    {/* Toggle pill */}
+                                    <div style={{ position: 'relative', width: '44px', height: '24px', borderRadius: '12px', background: newProduct.status === 1 ? '#10b981' : 'rgba(255,255,255,0.15)', transition: 'background 0.25s', flexShrink: 0 }}>
+                                        <div style={{ position: 'absolute', top: '3px', left: newProduct.status === 1 ? '23px' : '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.3)', transition: 'left 0.25s' }} />
+                                    </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button type="button" onClick={closeProductModal} className="btn-secondary" style={{ flex: 1 }}>Cancelar</button>
+                                    <button type="submit" className="btn-premium" disabled={newProductSaving || newProductUploading} style={{ flex: 1 }}>
+                                        {newProductSaving ? 'Salvando...' : editingProduct ? 'Salvar Alterações' : 'Salvar no Catálogo'}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 )}
@@ -720,55 +842,6 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                 {/* BOTTOM SECTION */}
                 <div style={{ flex: 1, display: 'flex', gap: '20px', minHeight: 0, opacity: activeItem ? 1 : 0.4, pointerEvents: activeItem ? 'auto' : 'none' }}>
                     
-                    {/* ANEXOS PANEL (Bottom Left) */}
-                    <div style={{ width: '300px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '12px', padding: '15px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Anexos</span>
-                            <button 
-                                onClick={() => document.getElementById('global-file-input').click()}
-                                style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.7rem' }}
-                            >
-                                Anexar
-                            </button>
-                        </div>
-                        <div style={{ flex: 1, overflowY: 'auto', background: 'rgba(0,0,0,0.15)', borderRadius: '8px', padding: '8px' }}>
-                            {[
-                                ...globalAttachments.map(a => ({ ...a, origin: 'Geral', sourceType: 'GLOBAL' })),
-                                ...budgetItems.flatMap(item => (item.attachments || []).map((a, idx) => ({ ...a, origin: item.name, itemId: item.id, itemIdx: idx, sourceType: 'ITEM' })))
-                            ].length === 0 ? (
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>Nenhum anexo encontrado</div>
-                            ) : (
-                                [
-                                    ...globalAttachments.map(a => ({ ...a, origin: 'Geral', sourceType: 'GLOBAL' })),
-                                    ...budgetItems.flatMap(item => (item.attachments || []).map((a, idx) => ({ ...a, origin: item.name, itemId: item.id, itemIdx: idx, sourceType: 'ITEM' })))
-                                ].map((att, i) => (
-                                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: '8px', marginBottom: '8px', fontSize: '0.75rem', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <Paperclip size={12} color={att.sourceType === 'GLOBAL' ? 'var(--primary)' : '#10b981'}/>
-                                            <a href={att.url} target="_blank" rel="noreferrer" style={{ flex: 1, color: 'white', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: '600' }}>{att.name}</a>
-                                            <button onClick={() => {
-                                                if (att.sourceType === 'GLOBAL') handleDeleteAttachment(att.id, 'GLOBAL');
-                                                else {
-                                                    if (confirm(`Deseja remover o anexo de "${att.origin}"?`)) {
-                                                        const updated = budgetItems.map(it => it.id === att.itemId ? { ...it, attachments: it.attachments.filter((_, idx) => idx !== att.itemIdx) } : it);
-                                                        setBudgetItems(updated);
-                                                        persistBudget(updated);
-                                                    }
-                                                }
-                                            }} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><X size={12}/></button>
-                                        </div>
-                                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                            <span style={{ padding: '2px 6px', borderRadius: '4px', background: att.sourceType === 'GLOBAL' ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.2)', color: att.sourceType === 'GLOBAL' ? 'var(--primary)' : '#10b981', fontWeight: 'bold' }}>
-                                                {att.origin}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        <input id="global-file-input" type="file" hidden onChange={(e) => handleFileUpload(e, 'GLOBAL')} />
-                    </div>
-                    
                     {/* LEFT COLUMN: AVAILABLE PRODUCTS */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '12px', padding: '15px', overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -789,10 +862,20 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                              availableProducts.map(p => {
                                 const currentPriceStr = customPriceInput[p.id] !== undefined ? customPriceInput[p.id] : maskCurrency(p.value);
                                 return (
-                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderBottom: '1px solid var(--border)' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{p.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        {/* Name row with photo thumbnail */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            {p.photo ? (
+                                                <img src={p.photo} alt={p.name} style={{ width: '30px', height: '30px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
+                                            ) : (
+                                                <div style={{ width: '30px', height: '30px', borderRadius: '6px', background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <Package size={14} color="var(--primary)" />
+                                                </div>
+                                            )}
+                                            <div style={{ fontWeight: '600', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '38px' }}>
                                             {editingPriceId === p.id ? (
                                                 <input 
                                                     type="text" 
@@ -816,7 +899,17 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             <span>/ {p.unit}</span>
                                         </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                        {/* Edit product button */}
+                                        <button
+                                            title="Editar produto"
+                                            onClick={() => handleOpenEditProduct(p)}
+                                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
+                                            onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
                                         <input 
                                             type="number" 
                                             min="0.1" 
@@ -990,6 +1083,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
                                                     <thead>
                                                         <tr style={{ background: '#f1f5f9' }}>
+                                                            <th style={{ padding: '10px', fontSize: '11px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', width: '52px' }}>FOTO</th>
                                                             <th style={{ padding: '10px', fontSize: '11px', textAlign: 'left', borderBottom: '2px solid #e2e8f0' }}>DESCRIÇÃO</th>
                                                             <th style={{ padding: '10px', fontSize: '11px', textAlign: 'center', borderBottom: '2px solid #e2e8f0' }}>QTD</th>
                                                             <th style={{ padding: '10px', fontSize: '11px', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>CUSTO UN.</th>
@@ -999,9 +1093,22 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                     <tbody>
                                                         {materials.length > 0 && (
                                                             <>
-                                                                <tr style={{ background: '#f8fafc' }}><td colSpan="4" style={{ padding: '5px 10px', fontSize: '10px', fontWeight: '900', color: '#6366f1' }}>MATERIAIS</td></tr>
+                                                                <tr style={{ background: '#f8fafc' }}><td colSpan="5" style={{ padding: '5px 10px', fontSize: '10px', fontWeight: '900', color: '#6366f1' }}>MATERIAIS</td></tr>
                                                                 {materials.map((sp, idx) => (
                                                                     <tr key={`mat-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                        <td style={{ padding: '6px 8px', textAlign: 'center', width: '52px' }}>
+                                                                            {sp.product.photo ? (
+                                                                                <img
+                                                                                    src={sp.product.photo}
+                                                                                    alt={sp.product.name}
+                                                                                    style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'block', margin: '0 auto' }}
+                                                                                />
+                                                                            ) : (
+                                                                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                                                                                    <span style={{ fontSize: '18px', color: '#94a3b8' }}>📦</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px' }}>{sp.product.name}</td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'center' }}>{sp.quantity} {sp.product.unit}</td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.product.value)}</td>
@@ -1009,16 +1116,29 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                     </tr>
                                                                 ))}
                                                                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                                                                    <td colSpan="3" style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Subtotal Materiais:</td>
+                                                                    <td colSpan="4" style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Subtotal Materiais:</td>
                                                                     <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: '12px', fontWeight: '800' }}>{maskCurrency(subTotalMaterial)}</td>
                                                                 </tr>
                                                             </>
                                                         )}
                                                         {services.length > 0 && (
                                                             <>
-                                                                <tr style={{ background: '#f8fafc' }}><td colSpan="4" style={{ padding: '5px 10px', fontSize: '10px', fontWeight: '900', color: '#6366f1' }}>SERVIÇOS</td></tr>
+                                                                <tr style={{ background: '#f8fafc' }}><td colSpan="5" style={{ padding: '5px 10px', fontSize: '10px', fontWeight: '900', color: '#6366f1' }}>SERVIÇOS</td></tr>
                                                                 {services.map((sp, idx) => (
                                                                     <tr key={`ser-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                        <td style={{ padding: '6px 8px', textAlign: 'center', width: '52px' }}>
+                                                                            {sp.product.photo ? (
+                                                                                <img
+                                                                                    src={sp.product.photo}
+                                                                                    alt={sp.product.name}
+                                                                                    style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'block', margin: '0 auto' }}
+                                                                                />
+                                                                            ) : (
+                                                                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                                                                                    <span style={{ fontSize: '18px', color: '#94a3b8' }}>⚙️</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px' }}>{sp.product.name}</td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'center' }}>{sp.quantity} {sp.product.unit}</td>
                                                                         <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.product.value)}</td>
@@ -1026,7 +1146,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                     </tr>
                                                                 ))}
                                                                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                                                                    <td colSpan="3" style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Subtotal Serviços:</td>
+                                                                    <td colSpan="4" style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Subtotal Serviços:</td>
                                                                     <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: '12px', fontWeight: '800' }}>{maskCurrency(subTotalService)}</td>
                                                                 </tr>
                                                             </>
@@ -1034,7 +1154,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                     </tbody>
                                                     <tfoot>
                                                         <tr style={{ background: '#f8fafc' }}>
-                                                            <td colSpan="3" style={{ padding: '10px', textAlign: 'right', fontSize: '12px', fontWeight: 'bold' }}>CUSTO TOTAL DO AMBIENTE:</td>
+                                                            <td colSpan="4" style={{ padding: '10px', textAlign: 'right', fontSize: '12px', fontWeight: 'bold' }}>CUSTO TOTAL DO AMBIENTE:</td>
                                                             <td style={{ padding: '10px', textAlign: 'right', fontSize: '13px', fontWeight: '900', color: '#10b981' }}>{maskCurrency(subTotalMaterial + subTotalService)}</td>
                                                         </tr>
                                                     </tfoot>

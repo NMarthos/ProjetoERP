@@ -8,6 +8,8 @@ const fs = require('fs');
 const multer = require('multer');
 const { getDbConnection, initializeDatabase } = require('./config/db');
 const authMiddleware = require('./middleware/auth');
+const { createProposalFolder } = require('./config/googleDrive');
+
 
 const app = express();
 app.use(cors());
@@ -387,27 +389,37 @@ async function start() {
                 await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
                     [req.tenantId, result.lastID, null, newPhase, req.user.id]);
 
-                // Eventos padrão do fluxo comercial (tipo Tarefa)
-                const defaultEvents = [
-                    '1 - Levantar / Anexar medidas e requisitos',
-                    '2 - Projetar ambientes e anexar imagens',
-                    '3 - Elaborar proposta',
-                    '4 - Reunião de apresentação',
-                    '5 - Concluir proposta',
-                ];
-                for (const desc of defaultEvents) {
-                    await db.run(
-                        'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [req.tenantId, result.lastID, '', '', desc, '', 'Tarefa', 'ABERTO', 0, req.user.id]
-                    );
-                }
+                // Criar pasta no Google Drive de forma assíncrona (não bloqueia a resposta)
+                const proposalId = result.lastID;
 
-                res.status(201).json({ id: result.lastID });
+                // Busca o nome do cliente para compor o nome da pasta
+                const partner = await db.get('SELECT name FROM partners WHERE id = ? AND tenant_id = ?', [partner_id, req.tenantId]);
+                const clientName = partner ? partner.name : 'Cliente';
+
+                // Formato: YYYYMM_NNNN-NomeCliente  (ex: 202605_0018-Ana Crispino)
+                const now = new Date();
+                const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+                const numProposta = String(proposalId).padStart(4, '0');
+                const folderName = `${yyyymm}_${numProposta}-${clientName}`;
+                createProposalFolder(folderName)
+                    .then(async (folder) => {
+                        if (folder) {
+                            await db.run(
+                                'UPDATE proposals SET drive_folder_id=?, drive_folder_url=? WHERE id=?',
+                                [folder.id, folder.webViewLink, proposalId]
+                            );
+                            console.log(`[GOOGLE DRIVE] Pasta vinculada à Proposta #${proposalId}`);
+                        }
+                    })
+                    .catch(err => console.error('[GOOGLE DRIVE] Falha ao vincular pasta:', err.message));
+
+                res.status(201).json({ id: proposalId });
             } catch (err) {
                 console.error("POST proposals error:", err);
                 res.status(500).json({ error: 'Erro ao criar orçamento: ' + err.message });
             }
         });
+
 
         app.put('/api/proposals/:id', authMiddleware, async (req, res) => {
             const body = req.body;
@@ -814,6 +826,23 @@ async function start() {
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao criar usuário' });
+            }
+        });
+
+        // --- SETTINGS (alias for BudgetModal / ProposalCompletionModal) ---
+        app.get('/api/settings', authMiddleware, async (req, res) => {
+            try {
+                const taxes      = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
+                const markup     = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"',   [req.tenantId]);
+                const maxFinance = await db.get('SELECT MAX(finance_cost_percentage) as max_val FROM payment_conditions WHERE tenant_id = ?', [req.tenantId]);
+                res.json({
+                    taxes:       taxes      ? parseFloat(taxes.value)              : 0,
+                    markup:      markup     ? parseFloat(markup.value)             : 0,
+                    financeCost: maxFinance ? parseFloat(maxFinance.max_val || 0)  : 0,
+                });
+            } catch (err) {
+                console.error('GET /settings error:', err);
+                res.status(500).json({ error: 'Erro ao buscar configurações' });
             }
         });
 

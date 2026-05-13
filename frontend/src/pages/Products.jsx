@@ -190,9 +190,23 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '1.5rem' }}>
-                        <input type="checkbox" checked={form.status === 1} onChange={e => setForm({...form, status: e.target.checked ? 1 : 0})} id="chk-status" />
-                        <label htmlFor="chk-status" style={{ margin: 0, fontWeight: '600' }}>Produto Ativado no Catálogo</label>
+                    {/* Status — toggle switch */}
+                    <div
+                        onClick={() => setForm(f => ({ ...f, status: f.status === 1 ? 0 : 1 }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1.5rem', padding: '12px 16px', background: form.status === 1 ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)', borderRadius: '10px', border: `1px solid ${form.status === 1 ? 'rgba(16,185,129,0.4)' : 'var(--border)'}`, cursor: 'pointer', transition: 'all 0.25s', userSelect: 'none' }}
+                    >
+                        <div>
+                            <div style={{ fontWeight: '700', fontSize: '0.88rem', color: form.status === 1 ? '#10b981' : 'var(--text-muted)' }}>
+                                Ativado no Catálogo
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {form.status === 1 ? 'Produto visível e disponível para orçamentos' : 'Produto oculto do catálogo'}
+                            </div>
+                        </div>
+                        {/* Toggle pill */}
+                        <div style={{ position: 'relative', width: '44px', height: '24px', borderRadius: '12px', background: form.status === 1 ? '#10b981' : 'rgba(255,255,255,0.15)', transition: 'background 0.25s', flexShrink: 0 }}>
+                            <div style={{ position: 'absolute', top: '3px', left: form.status === 1 ? '23px' : '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.3)', transition: 'left 0.25s' }} />
+                        </div>
                     </div>
 
                     <button type="submit" className="btn-premium" style={{ width: '100%', marginTop: '1.5rem' }} disabled={saving || uploading}>
