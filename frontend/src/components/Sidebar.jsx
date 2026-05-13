@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2, FileText } from 'lucide-react';
+import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2, FileText, TrendingUp, ClipboardList } from 'lucide-react';
 
 const Sidebar = ({ user, onLogout, setView, currentView }) => {
     const [geralOpen, setGeralOpen] = useState(true);
     const [comercialOpen, setComercialOpen] = useState(true);
+    const [fabOpen, setFabOpen] = useState(false);
     const [secOpen, setSecOpen] = useState(false);
+    const [adminOpen, setAdminOpen] = useState(false);
 
     const menuItems = [
         { icon: <LayoutDashboard size={20} />, label: 'Dashboard', module: 'dashboard' },
@@ -31,8 +33,26 @@ const Sidebar = ({ user, onLogout, setView, currentView }) => {
                 { icon: <Wallet size={18} />, label: 'Formas de Pagamento', module: 'M_PAYMENTS' }
             ]
         },
-        { icon: <Factory size={20} />, label: 'Fábrica', module: 'M2' },
-        { icon: <Wallet size={20} />, label: 'Administrativo', module: 'M3' },
+        { 
+            label: 'Fábrica',
+            icon: <Factory size={20} />,
+            isHeader: true,
+            isOpen: fabOpen,
+            toggle: () => setFabOpen(!fabOpen),
+            subItems: [
+                { icon: <ClipboardList size={18} />, label: 'Ordens de Produção', module: 'M_ORDERS' },
+            ]
+        },
+        { 
+            label: 'Administrativo', 
+            icon: <Wallet size={20} />,
+            isHeader: true,
+            isOpen: adminOpen,
+            toggle: () => setAdminOpen(!adminOpen),
+            subItems: [
+                { icon: <TrendingUp size={18} />, label: 'Fluxo de Caixa', module: 'M_CASHFLOW' },
+            ]
+        },
     ];
 
     if (user?.role === 'ADMIN' || !user?.role) {

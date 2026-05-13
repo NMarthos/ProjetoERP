@@ -221,7 +221,7 @@ async function initializeDatabase(db) {
                     description TEXT NOT NULL,
                     value DECIMAL(10, 2) DEFAULT 0,
                     status TEXT DEFAULT 'ABERTO' CHECK(status IN ('ABERTO', 'APROVADO', 'REJEITADO', 'PENDENTE', 'EM PRODUÇÃO', 'FINALIZADO', 'CANCELADO')),
-                    phase TEXT DEFAULT '1-Comercial',
+                    phase TEXT DEFAULT 'Comercial',
                     phase_date DATETIME DEFAULT CURRENT_TIMESTAMP,
                     budget_data TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -253,7 +253,7 @@ async function initializeDatabase(db) {
         { table: 'proposals', column: 'value', type: 'DECIMAL(10, 2) DEFAULT 0' },
         { table: 'proposals', column: 'status', type: 'TEXT DEFAULT "ABERTO"' },
         { table: 'proposals', column: 'user_id', type: 'INTEGER' },
-        { table: 'proposals', column: 'phase', type: 'TEXT DEFAULT "1-Comercial"' },
+        { table: 'proposals', column: 'phase', type: 'TEXT DEFAULT "Comercial"' },
         { table: 'proposals', column: 'phase_date', type: 'DATETIME DEFAULT CURRENT_TIMESTAMP' },
         { table: 'proposals', column: 'budget_data', type: 'TEXT' },
         { table: 'production_orders', column: 'priority', type: 'TEXT DEFAULT "MEDIA"' },
@@ -420,6 +420,96 @@ async function initializeDatabase(db) {
             FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE CASCADE
         )
     `);
+
+    // Tabela de Fluxo Financeiro (Débito e Crédito)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS financial_flows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            proposal_id INTEGER,                          -- NULL = lançamento manual
+            type TEXT NOT NULL DEFAULT 'CREDITO' CHECK(type IN ('CREDITO', 'DEBITO')),
+            category TEXT,                                -- Ex: Receita de Projeto, Fornecedor, Aluguel
+            title TEXT NOT NULL,
+            description TEXT,
+            value DECIMAL(10, 2) DEFAULT 0,
+            due_date DATE NOT NULL,
+            payment_date DATE,                            -- Data efetiva de liquidação
+            note TEXT,
+            status TEXT DEFAULT 'EM_ABERTO' CHECK(status IN ('EM_ABERTO', 'LIQUIDADO', 'CANCELADO')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (proposal_id) REFERENCES proposals(id) ON DELETE SET NULL
+        )
+    `);
+
+    // Migrações: evolução da tabela financial_flows
+    const ffMigrations = [
+        { column: 'type',         type: 'TEXT NOT NULL DEFAULT "CREDITO"' },
+        { column: 'category',     type: 'TEXT' },
+        { column: 'description',  type: 'TEXT' },
+        { column: 'payment_date', type: 'DATE' },
+    ];
+    for (const m of ffMigrations) {
+        try {
+            const cols = await db.all('PRAGMA table_info(financial_flows)');
+            if (!cols.find(c => c.name === m.column)) {
+                await db.run(`ALTER TABLE financial_flows ADD COLUMN ${m.column} ${m.type}`);
+                console.log(`[MIGRAÇÃO] Coluna ${m.column} adicionada à tabela financial_flows.`);
+            }
+        } catch(e) {}
+    }
+
+    // Migração crítica: tornar proposal_id nullable (recriação da tabela)
+    try {
+        const cols = await db.all('PRAGMA table_info(financial_flows)');
+        const proposalIdCol = cols.find(c => c.name === 'proposal_id');
+        if (proposalIdCol && proposalIdCol.notnull === 1) {
+            console.log('[MIGRAÇÃO] Recriando financial_flows para tornar proposal_id nullable...');
+            await db.exec(`
+                BEGIN TRANSACTION;
+
+                CREATE TABLE financial_flows_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL,
+                    proposal_id INTEGER,
+                    type TEXT NOT NULL DEFAULT 'CREDITO',
+                    category TEXT,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    value DECIMAL(10, 2) DEFAULT 0,
+                    due_date DATE NOT NULL,
+                    payment_date DATE,
+                    note TEXT,
+                    status TEXT DEFAULT 'EM_ABERTO',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                    FOREIGN KEY (proposal_id) REFERENCES proposals(id) ON DELETE SET NULL
+                );
+
+                INSERT INTO financial_flows_new
+                    (id, tenant_id, proposal_id, type, category, title, description, value, due_date, payment_date, note, status, created_at)
+                SELECT
+                    id, tenant_id, proposal_id,
+                    COALESCE(type, 'CREDITO'), category, title, description, value, due_date,
+                    payment_date, note,
+                    CASE status WHEN 'PAGO' THEN 'LIQUIDADO' ELSE COALESCE(status, 'EM_ABERTO') END,
+                    created_at
+                FROM financial_flows;
+
+                DROP TABLE financial_flows;
+                ALTER TABLE financial_flows_new RENAME TO financial_flows;
+
+                COMMIT;
+            `);
+            console.log('[MIGRAÇÃO] financial_flows recriada com proposal_id nullable.');
+        }
+    } catch(e) {
+        try { await db.exec('ROLLBACK;'); } catch(_) {}
+        console.error('[MIGRAÇÃO] Erro ao recriar financial_flows:', e.message);
+    }
+
+    // Migrar status antigo PAGO → LIQUIDADO se existir
+    try { await db.run(`UPDATE financial_flows SET status='LIQUIDADO' WHERE status='PAGO'`); } catch(e) {}
 
     // Atualiza usuários antigos para admin por segurança
     try { await db.run('UPDATE users SET role = "ADMIN" WHERE role = "USER" OR role IS NULL'); } catch(e) {}

@@ -8,6 +8,8 @@ import Products from './pages/Products';
 import Security from './pages/Security';
 import Parameters from './pages/Parameters';
 import PaymentMethods from './pages/PaymentMethods';
+import CashFlow from './pages/CashFlow';
+import OrderManagement from './pages/OrderManagement';
 import './index.css';
 
 function App() {
@@ -86,6 +88,10 @@ function App() {
                     <Parameters />
                 ) : currentView === 'M_PAYMENTS' ? (
                     <PaymentMethods />
+                ) : currentView === 'M_CASHFLOW' ? (
+                    <CashFlow />
+                ) : currentView === 'M_ORDERS' ? (
+                    <OrderManagement />
                 ) : (
                     <div className="glass card">Selecione um módulo no menu lateral.</div>
                 )}

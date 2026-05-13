@@ -467,6 +467,64 @@ async function start() {
             }
         });
 
+        // --- APPROVE PROPOSAL (full atomic flow) ---
+        app.post('/api/proposals/:id/approve', authMiddleware, async (req, res) => {
+            const { flows, payment_methods, payment_notes } = req.body;
+            // flows: [{ title, value, due_date, note }]
+            try {
+                const proposal = await db.get(
+                    'SELECT user_id, phase FROM proposals WHERE id=? AND tenant_id=?',
+                    [req.params.id, req.tenantId]
+                );
+                if (!proposal) return res.status(404).json({ error: 'Proposta não encontrada' });
+
+                const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'ADM';
+                if (proposal.user_id !== req.user.id && !isAdmin) {
+                    return res.status(403).json({ error: 'Acesso negado.' });
+                }
+
+                const oldPhase = proposal.phase || 'Comercial';
+                const newPhase = 'Técnica';
+
+                await db.run('BEGIN TRANSACTION');
+                try {
+                    // 1. Update proposal
+                    await db.run(
+                        `UPDATE proposals SET status='APROVADO', phase=?, phase_date=CURRENT_TIMESTAMP,
+                         payment_methods=?, payment_notes=? WHERE id=? AND tenant_id=?`,
+                        [newPhase, payment_methods || '', payment_notes || '', req.params.id, req.tenantId]
+                    );
+
+                    // 2. Insert financial flow rows (type=CREDITO, from proposal approval)
+                    if (Array.isArray(flows) && flows.length > 0) {
+                        for (const row of flows) {
+                            await db.run(
+                                `INSERT INTO financial_flows (tenant_id, proposal_id, type, category, title, value, due_date, note, status)
+                                 VALUES (?, ?, 'CREDITO', 'Receita de Projeto', ?, ?, ?, ?, 'EM_ABERTO')`,
+                                [req.tenantId, req.params.id, row.title, row.value, row.due_date, row.note || '']
+                            );
+                        }
+                    }
+
+                    // 3. Insert phase history
+                    await db.run(
+                        `INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id)
+                         VALUES (?, ?, ?, ?, ?)`,
+                        [req.tenantId, req.params.id, oldPhase, newPhase, req.user.id]
+                    );
+
+                    await db.run('COMMIT');
+                    res.json({ ok: true, message: 'Proposta aprovada com sucesso!' });
+                } catch (txErr) {
+                    await db.run('ROLLBACK');
+                    throw txErr;
+                }
+            } catch (err) {
+                console.error('[APPROVE] Error:', err);
+                res.status(500).json({ error: 'Erro ao aprovar proposta: ' + err.message });
+            }
+        });
+
         app.get('/api/proposals/:id/history', authMiddleware, async (req, res) => {
             try {
                 const history = await db.all(`
@@ -478,6 +536,88 @@ async function start() {
                 res.json(history);
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao buscar histórico' });
+            }
+        });
+
+        // --- FINANCIAL FLOWS ---
+        app.get('/api/financial-flows', authMiddleware, async (req, res) => {
+            const { date_from, date_to, status, type } = req.query;
+            try {
+                let conditions = ['ff.tenant_id = ?'];
+                let params = [req.tenantId];
+
+                if (date_from) { conditions.push('ff.due_date >= ?'); params.push(date_from); }
+                if (date_to)   { conditions.push('ff.due_date <= ?'); params.push(date_to); }
+                if (status)    { conditions.push('ff.status = ?');    params.push(status); }
+                if (type)      { conditions.push('ff.type = ?');      params.push(type); }
+
+                const rows = await db.all(`
+                    SELECT ff.*,
+                           p.description as proposal_description,
+                           pt.name as partner_name
+                    FROM financial_flows ff
+                    LEFT JOIN proposals p  ON ff.proposal_id = p.id
+                    LEFT JOIN partners pt ON p.partner_id = pt.id
+                    WHERE ${conditions.join(' AND ')}
+                    ORDER BY ff.due_date ASC, ff.id ASC
+                `, params);
+                res.json(rows);
+            } catch (err) {
+                console.error('[FINANCIAL-FLOWS] GET error:', err);
+                res.status(500).json({ error: 'Erro ao buscar fluxo de caixa: ' + err.message });
+            }
+        });
+
+        app.post('/api/financial-flows', authMiddleware, async (req, res) => {
+            const { type, category, title, description, value, due_date, payment_date, note, proposal_id } = req.body;
+            if (!title || !due_date || !value) return res.status(400).json({ error: 'Campos obrigatórios: título, data de vencimento e valor.' });
+            try {
+                const result = await db.run(
+                    `INSERT INTO financial_flows (tenant_id, proposal_id, type, category, title, description, value, due_date, payment_date, note, status)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EM_ABERTO')`,
+                    [req.tenantId, proposal_id || null, type || 'CREDITO', category || null, title, description || null, value, due_date, payment_date || null, note || null]
+                );
+                res.status(201).json({ id: result.lastID });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao criar lançamento: ' + err.message });
+            }
+        });
+
+        app.put('/api/financial-flows/:id', authMiddleware, async (req, res) => {
+            const { type, category, title, description, value, due_date, payment_date, note, status } = req.body;
+            try {
+                await db.run(
+                    `UPDATE financial_flows SET type=?, category=?, title=?, description=?, value=?, due_date=?, payment_date=?, note=?, status=?
+                     WHERE id=? AND tenant_id=?`,
+                    [type, category || null, title, description || null, value, due_date, payment_date || null, note || null, status, req.params.id, req.tenantId]
+                );
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao atualizar lançamento: ' + err.message });
+            }
+        });
+
+        app.patch('/api/financial-flows/:id/status', authMiddleware, async (req, res) => {
+            const { status, payment_date } = req.body;
+            const validStatus = ['EM_ABERTO', 'LIQUIDADO', 'CANCELADO'];
+            if (!validStatus.includes(status)) return res.status(400).json({ error: 'Status inválido' });
+            try {
+                await db.run(
+                    'UPDATE financial_flows SET status=?, payment_date=? WHERE id=? AND tenant_id=?',
+                    [status, payment_date || null, req.params.id, req.tenantId]
+                );
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao atualizar status: ' + err.message });
+            }
+        });
+
+        app.delete('/api/financial-flows/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('DELETE FROM financial_flows WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                res.json({ ok: true });
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao excluir lançamento: ' + err.message });
             }
         });
 

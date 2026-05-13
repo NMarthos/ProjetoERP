@@ -24,7 +24,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
         partner_id: '', 
         description: '', 
         status: 'ABERTO', 
-        phase: '1-Comercial' 
+        phase: 'Comercial' 
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -36,7 +36,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                 partner_id: proposal.partner_id,
                 description: proposal.description,
                 status: proposal.status,
-                phase: proposal.phase || '1-Comercial'
+                phase: proposal.phase || 'Comercial'
             });
         }
     }, [proposal]);
@@ -662,19 +662,25 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
     const [availableMethods, setAvailableMethods] = useState([]);
     const [liveSettings, setLiveSettings] = useState(settingsProp);
     const [fullscreenImage, setFullscreenImage] = useState(null);
+    const [showFluxo, setShowFluxo] = useState(false);
+    const [fluxoRows, setFluxoRows] = useState([]);
+    const [selectedCondIdx, setSelectedCondIdx] = useState(null);
 
     useEffect(() => {
         if (!proposal) return;
         setForm({
             status: proposal.status || 'ABERTO',
-            phase: proposal.phase || '1-Comercial',
+            phase: proposal.phase || 'Comercial',
             description: proposal.description || '',
             payment_methods: proposal.payment_methods || '',
             payment_notes: proposal.payment_notes || ''
         });
+        setSelectedCondIdx(null);
+        setFluxoRows([]);
         // Fetch fresh settings (aligned with BudgetModal)
         api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
         api.get('/payment-methods')
@@ -734,6 +740,26 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         return { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt };
     };
 
+    const buildFluxoRows = (cond, idx) => {
+        const { installments, isAVista, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+        const today = new Date();
+        const fmt = (d) => d.toISOString().split('T')[0];
+        const rows = [];
+        if (isAVista) {
+            rows.push({ title: 'À vista', value: maskCurrency(financedTotal), date: fmt(today), note: '' });
+        } else {
+            if (downPct > 0) {
+                rows.push({ title: 'Entrada', value: maskCurrency(downValue), date: fmt(today), note: '' });
+            }
+            for (let i = 1; i <= installments; i++) {
+                const d = new Date(today);
+                d.setMonth(d.getMonth() + i);
+                rows.push({ title: `Parcela ${i}`, value: maskCurrency(installAmt), date: fmt(d), note: '' });
+            }
+        }
+        return rows;
+    };
+
     const handleSelectCondition = (cond, idx) => {
         const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
         let text = `Opção ${idx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
@@ -748,9 +774,31 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
             text += `• ${installments}x de ${maskCurrency(installAmt)}`;
         }
         setForm(f => ({ ...f, payment_methods: text }));
+        setSelectedCondIdx(idx);
+        setFluxoRows(buildFluxoRows(cond, idx));
     };
 
     const handleAction = async (newStatus) => {
+        // --- Validations before APROVADO ---
+        if (newStatus === 'APROVADO') {
+            if (!grandTotal || grandTotal <= 0) {
+                setError('A proposta não possui valor. Adicione itens no orçamento antes de aprovar.');
+                return;
+            }
+            if (!diasFabrica || diasFabrica <= 0) {
+                setError('Informe o número de dias de fabricação no orçamento antes de aprovar.');
+                return;
+            }
+            if (selectedCondIdx === null) {
+                setError('Selecione uma condição de pagamento antes de aprovar.');
+                return;
+            }
+            // Open financial flow review screen
+            setError('');
+            setShowFluxo(true);
+            return;
+        }
+        // Other actions (REJEITADO, ARQUIVADO) save directly
         setSaving(true); setError('');
         try {
             const payload = {
@@ -758,11 +806,41 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                 payment_methods: form.payment_methods,
                 payment_notes: form.payment_notes
             };
-            if (newStatus === 'APROVADO' && form.phase === '1-Comercial') payload.phase = '2-Fábrica/Técnica';
             await api.put(`/proposals/${proposal.id}`, payload);
             onSave();
         } catch (err) {
             setError('Erro ao salvar conclusão: ' + (err.response?.data?.error || err.message));
+            setSaving(false);
+        }
+    };
+
+    const handleConfirmApproval = async () => {
+        setSaving(true); setError('');
+        try {
+            // Convert display values back to numeric and format dates for the API
+            const flows = fluxoRows.map(r => ({
+                title: r.title,
+                value: parseCurrency(r.value),
+                due_date: r.date, // YYYY-MM-DD
+                note: r.note || ''
+            }));
+
+            const fluxoText = fluxoRows
+                .map(r => `${r.title} | ${r.value} | ${new Date(r.date + 'T00:00:00').toLocaleDateString('pt-BR')}${r.note ? ' | ' + r.note : ''}`)
+                .join('\n');
+
+            await api.post(`/proposals/${proposal.id}/approve`, {
+                flows,
+                payment_methods: form.payment_methods,
+                payment_notes: fluxoText,
+            });
+
+            setSuccessMsg('Proposta aprovada com sucesso! Redirecionando...');
+            setTimeout(() => {
+                onSave(); // fecha o modal e atualiza a lista
+            }, 2000);
+        } catch (err) {
+            setError('Erro ao aprovar: ' + (err.response?.data?.error || err.message));
             setSaving(false);
         }
     };
@@ -785,7 +863,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                         </div>
                         <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Identificação</div>
-                            <div style={{ fontWeight: '800', fontSize: '1.2rem' }}>{proposal.phase === '1-Comercial' ? `PROPOSTA #${proposal.id}` : `PROJETO #${proposal.id}`}</div>
+                            <div style={{ fontWeight: '800', fontSize: '1.2rem' }}>{proposal.phase === 'Comercial' ? `PROPOSTA #${proposal.id}` : `PROJETO #${proposal.id}`}</div>
                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Criado em: {new Date(proposal.created_at).toLocaleDateString('pt-BR')}</div>
                         </div>
                     </div>
@@ -972,6 +1050,135 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         </div>,
         document.body
         )}
+        {/* ── FLUXO FINANCEIRO OVERLAY ─────────────────────────────── */}
+        {showFluxo && createPortal(
+            <div className="modal-overlay" style={{ zIndex: 99998 }}>
+                <div className="modal-content" style={{ maxWidth: '820px', width: '96%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <div>
+                            <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.3rem' }}>
+                                💳 Fluxo Financeiro
+                            </h2>
+                            <p style={{ color: 'var(--text-muted)', margin: '4px 0 0', fontSize: '0.85rem' }}>
+                                Revise e edite as parcelas antes de confirmar a aprovação
+                            </p>
+                        </div>
+                        <button onClick={() => setShowFluxo(false)} className="btn-icon"><X size={20} /></button>
+                    </div>
+
+                    {/* Table */}
+                    <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '12px', marginBottom: '1rem' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{ background: 'rgba(99,102,241,0.15)', borderBottom: '2px solid var(--border)' }}>
+                                    <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--primary)' }}>Título</th>
+                                    <th style={{ padding: '12px 14px', textAlign: 'right', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--primary)' }}>Valor</th>
+                                    <th style={{ padding: '12px 14px', textAlign: 'center', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--primary)' }}>Data</th>
+                                    <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--primary)' }}>Anotação</th>
+                                    <th style={{ width: '40px' }}></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {fluxoRows.map((row, i) => (
+                                    <tr key={i} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                value={row.title}
+                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, title: e.target.value } : r))}
+                                                style={{ width: '100%', marginBottom: 0, fontWeight: '700', fontSize: '0.88rem' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                value={row.value}
+                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, value: maskCurrency(e.target.value) } : r))}
+                                                style={{ width: '120px', marginBottom: 0, textAlign: 'right', fontWeight: '700', color: '#10b981' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                type="date"
+                                                value={row.date}
+                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, date: e.target.value } : r))}
+                                                style={{ marginBottom: 0, colorScheme: 'dark', fontSize: '0.85rem' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                value={row.note}
+                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, note: e.target.value } : r))}
+                                                placeholder="Ex: Pix, Cartão..."
+                                                style={{ width: '100%', marginBottom: 0, fontSize: '0.85rem' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                                            <button
+                                                onClick={() => setFluxoRows(rows => rows.filter((_, j) => j !== i))}
+                                                style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
+                                                title="Remover linha"
+                                            >
+                                                <Trash2 size={15} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Total summary */}
+                    {(() => {
+                        const total = fluxoRows.reduce((acc, r) => acc + parseCurrency(r.value), 0);
+                        return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'rgba(16,185,129,0.08)', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.3)', marginBottom: '1rem' }}>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total do fluxo:</span>
+                                <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(total)}</span>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Add row button */}
+                    <button
+                        onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setFluxoRows(rows => [...rows, { title: `Parcela ${rows.length + 1}`, value: 'R$ 0,00', date: today, note: '' }]);
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'transparent', border: '1.5px dashed var(--border)', color: 'var(--text-muted)', padding: '10px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem', marginBottom: '1.25rem', transition: 'all 0.15s', width: '100%', justifyContent: 'center' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                        <Plus size={16} /> Adicionar Linha
+                    </button>
+
+                    {/* Footer actions */}
+                    {successMsg ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 20px', background: 'rgba(16,185,129,0.12)', border: '1.5px solid #10b981', borderRadius: '12px', marginTop: '0.5rem' }}>
+                            <CheckCircle size={22} color="#10b981" />
+                            <div>
+                                <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1rem' }}>Proposta aprovada com sucesso!</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>Redirecionando para Gestão Comercial...</div>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                                <button onClick={() => setShowFluxo(false)} className="btn-secondary" disabled={saving}>Voltar</button>
+                                <button onClick={handleConfirmApproval} disabled={saving} className="btn-premium" style={{ padding: '12px 32px', fontSize: '1rem' }}>
+                                    {saving ? 'Aprovando...' : '✓ Confirmar Aprovação'}
+                                </button>
+                            </div>
+                            {error && <div style={{ color: '#ef4444', fontSize: '0.88rem', marginTop: '8px', textAlign: 'right' }}>{error}</div>}
+                        </>
+                    )}
+                </div>
+            </div>,
+            document.body
+        )}
+
         {fullscreenImage && createPortal(
             <div
                 onClick={() => setFullscreenImage(null)}
