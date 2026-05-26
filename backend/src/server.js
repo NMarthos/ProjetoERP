@@ -80,6 +80,7 @@ async function start() {
                     user: { 
                         name: user.name, 
                         email: user.email, 
+                        phone: user.phone || null,
                         tenantId: user.tenant_id, 
                         role: user.role || 'ADMIN',
                         logo_url: user.logo_url
@@ -221,12 +222,12 @@ async function start() {
         });
 
         app.post('/api/products', authMiddleware, async (req, res) => {
-            const { name, unit, value, manufacturer_id, photo, status } = req.body;
+            const { name, unit, value, manufacturer_id, photo, status, group_name } = req.body;
             try {
                 const result = await db.run(
-                    `INSERT INTO products (tenant_id, name, unit, value, manufacturer_id, photo, status, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-                    [req.tenantId, name, unit, value || 0, manufacturer_id, photo, status ?? 1]
+                    `INSERT INTO products (tenant_id, name, unit, value, manufacturer_id, photo, status, group_name, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                    [req.tenantId, name, unit, value || 0, manufacturer_id, photo, status ?? 1, group_name || 'Outros']
                 );
 
                 // Regra Automática: MDF + Chapa -> Cria fitas de borda
@@ -248,9 +249,9 @@ async function start() {
 
                         if (!existing) {
                             await db.run(
-                                `INSERT INTO products (tenant_id, name, unit, value, manufacturer_id, status, updated_at) 
-                                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-                                [req.tenantId, fbName, 'M', 0, null, 1]
+                                `INSERT INTO products (tenant_id, name, unit, value, manufacturer_id, status, group_name, updated_at) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                                [req.tenantId, fbName, 'M', 0, null, 1, 'Fita']
                             );
                         }
                     }
@@ -263,16 +264,16 @@ async function start() {
         });
 
         app.put('/api/products/:id', authMiddleware, async (req, res) => {
-            const { name, unit, value, manufacturer_id, photo, status } = req.body;
+            const { name, unit, value, manufacturer_id, photo, status, group_name } = req.body;
             try {
                 const old = await db.get('SELECT value FROM products WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
                 const shouldUpdateDate = old && Number(old.value) !== Number(value);
 
                 await db.run(
-                    `UPDATE products SET name=?, unit=?, value=?, manufacturer_id=?, photo=?, status=?, 
+                    `UPDATE products SET name=?, unit=?, value=?, manufacturer_id=?, photo=?, status=?, group_name=?,
                     updated_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE updated_at END
                     WHERE id=? AND tenant_id=?`,
-                    [name, unit, value, manufacturer_id, photo, status, shouldUpdateDate ? 1 : 0, req.params.id, req.tenantId]
+                    [name, unit, value, manufacturer_id, photo, status, group_name || 'Outros', shouldUpdateDate ? 1 : 0, req.params.id, req.tenantId]
                 );
                 res.json({ ok: true });
             } catch (err) {
@@ -389,31 +390,7 @@ async function start() {
                 await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
                     [req.tenantId, result.lastID, null, newPhase, req.user.id]);
 
-                // Criar pasta no Google Drive de forma assíncrona (não bloqueia a resposta)
-                const proposalId = result.lastID;
-
-                // Busca o nome do cliente para compor o nome da pasta
-                const partner = await db.get('SELECT name FROM partners WHERE id = ? AND tenant_id = ?', [partner_id, req.tenantId]);
-                const clientName = partner ? partner.name : 'Cliente';
-
-                // Formato: YYYYMM_NNNN-NomeCliente  (ex: 202605_0018-Ana Crispino)
-                const now = new Date();
-                const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-                const numProposta = String(proposalId).padStart(4, '0');
-                const folderName = `${yyyymm}_${numProposta}-${clientName}`;
-                createProposalFolder(folderName)
-                    .then(async (folder) => {
-                        if (folder) {
-                            await db.run(
-                                'UPDATE proposals SET drive_folder_id=?, drive_folder_url=? WHERE id=?',
-                                [folder.id, folder.webViewLink, proposalId]
-                            );
-                            console.log(`[GOOGLE DRIVE] Pasta vinculada à Proposta #${proposalId}`);
-                        }
-                    })
-                    .catch(err => console.error('[GOOGLE DRIVE] Falha ao vincular pasta:', err.message));
-
-                res.status(201).json({ id: proposalId });
+                res.status(201).json({ id: result.lastID });
             } catch (err) {
                 console.error("POST proposals error:", err);
                 res.status(500).json({ error: 'Erro ao criar orçamento: ' + err.message });
@@ -525,6 +502,36 @@ async function start() {
             }
         });
 
+        // --- PRODUCTION PHASE ADVANCE (sem restrição de dono) ---
+        app.put('/api/proposals/:id/production-phase', authMiddleware, async (req, res) => {
+            const { phase } = req.body;
+            const VALID_PHASES = ['Técnica', 'Produção', 'Despacho', 'Montagem', 'Concluído'];
+            if (!phase || !VALID_PHASES.includes(phase)) {
+                return res.status(400).json({ error: 'Fase inválida. Valores aceitos: ' + VALID_PHASES.join(', ') });
+            }
+            try {
+                const proposal = await db.get(
+                    'SELECT phase FROM proposals WHERE id=? AND tenant_id=? AND status=?',
+                    [req.params.id, req.tenantId, 'APROVADO']
+                );
+                if (!proposal) return res.status(404).json({ error: 'Proposta não encontrada ou não aprovada' });
+
+                const oldPhase = proposal.phase;
+                await db.run(
+                    'UPDATE proposals SET phase=?, phase_date=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?',
+                    [phase, req.params.id, req.tenantId]
+                );
+                await db.run(
+                    'INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
+                    [req.tenantId, req.params.id, oldPhase, phase, req.user.id]
+                );
+                res.json({ ok: true });
+            } catch (err) {
+                console.error('[PRODUCTION-PHASE] Error:', err);
+                res.status(500).json({ error: 'Erro ao avançar fase: ' + err.message });
+            }
+        });
+
         app.get('/api/proposals/:id/history', authMiddleware, async (req, res) => {
             try {
                 const history = await db.all(`
@@ -625,7 +632,8 @@ async function start() {
         app.get('/api/proposals/:id/events', authMiddleware, async (req, res) => {
             try {
                 const events = await db.all(`
-                    SELECT e.*, u.name as user_name 
+                    SELECT e.*, u.name as user_name,
+                    (SELECT COUNT(*) FROM event_attachments ea WHERE ea.event_id = e.id) as attachment_count
                     FROM proposal_events e
                     LEFT JOIN users u ON e.user_id = u.id
                     WHERE e.proposal_id=? AND e.tenant_id=?
@@ -697,7 +705,7 @@ async function start() {
 
                 // Auto-advance proposal phase when a Tarefa is closed
                 const isClosing = event_status === 'FECHADO' && currentEvent?.event_status !== 'FECHADO';
-                const isTarefa = (type ?? currentEvent?.type) === 'Tarefa';
+                const isTarefa = ['Tarefa', 'Levantamento de medidas', 'Confirmação de medidas'].includes(type ?? currentEvent?.type);
 
                 if (isClosing && isTarefa && currentEvent?.proposal_id) {
                     const eventTitle = title ?? currentEvent?.title ?? '';
@@ -727,6 +735,20 @@ async function start() {
             } catch (err) {
                 console.error('PUT /events error:', err);
                 res.status(500).json({ error: 'Erro ao atualizar evento' });
+            }
+        });
+
+        app.delete('/api/events/:id', authMiddleware, async (req, res) => {
+            try {
+                await db.run('BEGIN TRANSACTION');
+                await db.run('DELETE FROM event_attachments WHERE event_id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                await db.run('DELETE FROM proposal_events WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                await db.run('COMMIT');
+                res.json({ ok: true });
+            } catch (err) {
+                await db.run('ROLLBACK');
+                console.error('DELETE /events error:', err);
+                res.status(500).json({ error: 'Erro ao excluir evento' });
             }
         });
 
@@ -908,7 +930,7 @@ async function start() {
         app.get('/api/security/tenants', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
             try {
-                const tenants = await db.all('SELECT id, name, cnpj as document, logo_url, active, created_at FROM tenants ORDER BY id ASC');
+                const tenants = await db.all('SELECT id, name, cnpj as document, logo_url, active, website, instagram, phone, address_cep, address, address_num, address_complement, address_neighborhood, address_city, address_state, created_at FROM tenants ORDER BY id ASC');
                 res.json(tenants);
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao buscar contas' });
@@ -917,9 +939,13 @@ async function start() {
 
         app.post('/api/security/tenants', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { name, document, logo_url } = req.body;
+            const { name, document, logo_url, website, instagram, phone, address_cep, address, address_num, address_complement, address_neighborhood, address_city, address_state } = req.body;
             try {
-                const result = await db.run('INSERT INTO tenants (name, cnpj, logo_url) VALUES (?, ?, ?)', [name, document, logo_url]);
+                const result = await db.run(
+                    `INSERT INTO tenants (name, cnpj, logo_url, website, instagram, phone, address_cep, address, address_num, address_complement, address_neighborhood, address_city, address_state) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+                    [name, document, logo_url, website || null, instagram || null, phone || null, address_cep || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_city || null, address_state || null]
+                );
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
                 console.error("Erro no POST /api/security/tenants:", err);
@@ -929,9 +955,13 @@ async function start() {
 
         app.put('/api/security/tenants/:id', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { name, document, logo_url, active } = req.body;
+            const { name, document, logo_url, active, website, instagram, phone, address_cep, address, address_num, address_complement, address_neighborhood, address_city, address_state } = req.body;
             try {
-                await db.run('UPDATE tenants SET name=?, cnpj=?, logo_url=?, active=? WHERE id=?', [name, document, logo_url, active, req.params.id]);
+                await db.run(
+                    `UPDATE tenants SET name=?, cnpj=?, logo_url=?, active=?, website=?, instagram=?, phone=?, address_cep=?, address=?, address_num=?, address_complement=?, address_neighborhood=?, address_city=?, address_state=? 
+                     WHERE id=?`, 
+                    [name, document, logo_url, active, website || null, instagram || null, phone || null, address_cep || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_city || null, address_state || null, req.params.id]
+                );
                 res.json({ ok: true });
             } catch (err) {
                 console.error("Erro no PUT /api/security/tenants/:id:", err);
@@ -943,7 +973,7 @@ async function start() {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
             try {
                 const users = await db.all(`
-                    SELECT u.id, u.tenant_id, u.name, u.email, u.active, u.role, t.name as tenant_name 
+                    SELECT u.id, u.tenant_id, u.name, u.email, u.phone, u.active, u.role, t.name as tenant_name 
                     FROM users u
                     LEFT JOIN tenants t ON u.tenant_id = t.id
                     ORDER BY u.name ASC
@@ -956,12 +986,12 @@ async function start() {
 
         app.post('/api/security/users', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { tenant_id, name, email, password, role } = req.body;
+            const { tenant_id, name, email, password, role, phone } = req.body;
             try {
                 const hashedPassword = await bcrypt.hash(password, 10);
                 const result = await db.run(
-                    'INSERT INTO users (tenant_id, name, email, password, role) VALUES (?, ?, ?, ?, ?)',
-                    [tenant_id, name, email, hashedPassword, role || 'USER']
+                    'INSERT INTO users (tenant_id, name, email, password, role, phone) VALUES (?, ?, ?, ?, ?, ?)',
+                    [tenant_id, name, email, hashedPassword, role || 'USER', phone || null]
                 );
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
@@ -975,10 +1005,12 @@ async function start() {
                 const taxes      = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
                 const markup     = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"',   [req.tenantId]);
                 const maxFinance = await db.get('SELECT MAX(finance_cost_percentage) as max_val FROM payment_conditions WHERE tenant_id = ?', [req.tenantId]);
+                const tenant     = await db.get('SELECT name, cnpj, logo_url, website, instagram, phone FROM tenants WHERE id = ?', [req.tenantId]);
                 res.json({
                     taxes:       taxes      ? parseFloat(taxes.value)              : 0,
                     markup:      markup     ? parseFloat(markup.value)             : 0,
                     financeCost: maxFinance ? parseFloat(maxFinance.max_val || 0)  : 0,
+                    tenant:      tenant     || null
                 });
             } catch (err) {
                 console.error('GET /settings error:', err);
@@ -1031,18 +1063,18 @@ async function start() {
 
         app.put('/api/security/users/:id', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { tenant_id, name, email, password, role, active } = req.body;
+            const { tenant_id, name, email, password, role, active, phone } = req.body;
             try {
                 if (password && password.trim() !== '') {
                     const hashedPassword = await bcrypt.hash(password, 10);
                     await db.run(
-                        'UPDATE users SET tenant_id=?, name=?, email=?, password=?, role=?, active=? WHERE id=?',
-                        [tenant_id, name, email, hashedPassword, role, active, req.params.id]
+                        'UPDATE users SET tenant_id=?, name=?, email=?, password=?, role=?, active=?, phone=? WHERE id=?',
+                        [tenant_id, name, email, hashedPassword, role, active, phone || null, req.params.id]
                     );
                 } else {
                     await db.run(
-                        'UPDATE users SET tenant_id=?, name=?, email=?, role=?, active=? WHERE id=?',
-                        [tenant_id, name, email, role, active, req.params.id]
+                        'UPDATE users SET tenant_id=?, name=?, email=?, role=?, active=?, phone=? WHERE id=?',
+                        [tenant_id, name, email, role, active, phone || null, req.params.id]
                     );
                 }
                 res.json({ ok: true });

@@ -9,7 +9,7 @@ import Security from './pages/Security';
 import Parameters from './pages/Parameters';
 import PaymentMethods from './pages/PaymentMethods';
 import CashFlow from './pages/CashFlow';
-import OrderManagement from './pages/OrderManagement';
+import OrdemProducao from './pages/OrdemProducao';
 import './index.css';
 
 function App() {
@@ -91,7 +91,7 @@ function App() {
                 ) : currentView === 'M_CASHFLOW' ? (
                     <CashFlow />
                 ) : currentView === 'M_ORDERS' ? (
-                    <OrderManagement />
+                    <OrdemProducao />
                 ) : (
                     <div className="glass card">Selecione um módulo no menu lateral.</div>
                 )}

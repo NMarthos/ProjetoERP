@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { Building2, Users, Plus, Edit3, Check, X, Shield, Camera } from 'lucide-react';
+import { maskPhone, maskCEP } from '../utils/masks';
 
 const Security = () => {
     const [tenants, setTenants] = useState([]);
@@ -49,6 +50,31 @@ const Security = () => {
             alert('Erro no upload da logomarca.');
         } finally {
             setUploadingLogo(false);
+        }
+    };
+
+    const handleCepChange = async (e) => {
+        let val = e.target.value.replace(/\D/g, '');
+        if (val.length > 5) val = val.substring(0, 5) + '-' + val.substring(5, 8);
+        setTenantForm(prev => ({ ...prev, address_cep: val }));
+
+        if (val.replace(/\D/g, '').length === 8) {
+            try {
+                const res = await fetch(`https://viacep.com.br/ws/${val.replace(/\D/g, '')}/json/`);
+                const data = await res.json();
+                if (!data.erro) {
+                    setTenantForm(prev => ({
+                        ...prev,
+                        address: data.logradouro || '',
+                        address_neighborhood: data.bairro || '',
+                        address_city: data.localidade || '',
+                        address_state: data.uf || '',
+                    }));
+                    setTimeout(() => document.getElementById('tenant_address_num_input')?.focus(), 100);
+                }
+            } catch (err) {
+                console.error("Erro ao buscar CEP", err);
+            }
         }
     };
 
@@ -102,7 +128,7 @@ const Security = () => {
                             <Building2 size={20} color="var(--primary)" />
                             <h3 style={{ margin: 0 }}>Contas (Empresas)</h3>
                         </div>
-                        <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setTenantForm({ name: '', document: '', logo_url: '', active: 1 })}>
+                        <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setTenantForm({ name: '', document: '', logo_url: '', active: 1, website: '', instagram: '', phone: '', address_cep: '', address: '', address_num: '', address_complement: '', address_neighborhood: '', address_city: '', address_state: '' })}>
                             <Plus size={16} /> Nova
                         </button>
                     </div>
@@ -111,11 +137,56 @@ const Security = () => {
                         <form onSubmit={saveTenant} style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
                             <h4 style={{ marginBottom: '1rem' }}>{tenantForm.id ? 'Editar Conta' : 'Nova Conta'}</h4>
                             
-                            <label>Nome da Empresa *</label>
-                            <input value={tenantForm.name} onChange={e => setTenantForm({...tenantForm, name: e.target.value})} required />
-                            
-                            <label>Documento (CNPJ/CPF)</label>
-                            <input value={tenantForm.document || ''} onChange={e => setTenantForm({...tenantForm, document: e.target.value})} />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', marginBottom: '1rem' }}>
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                    <label>Nome da Empresa *</label>
+                                    <input value={tenantForm.name} onChange={e => setTenantForm({...tenantForm, name: e.target.value})} required style={{ marginBottom: 0 }} />
+                                </div>
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                    <label>Documento (CNPJ/CPF)</label>
+                                    <input value={tenantForm.document || ''} onChange={e => setTenantForm({...tenantForm, document: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Site</label>
+                                    <input value={tenantForm.website || ''} onChange={e => setTenantForm({...tenantForm, website: e.target.value})} placeholder="www.empresa.com" style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Instagram</label>
+                                    <input value={tenantForm.instagram || ''} onChange={e => setTenantForm({...tenantForm, instagram: e.target.value})} placeholder="@empresa" style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Telefone</label>
+                                    <input value={tenantForm.phone || ''} onChange={e => setTenantForm({...tenantForm, phone: maskPhone(e.target.value)})} maxLength="15" placeholder="(00) 00000-0000" style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>CEP</label>
+                                    <input value={tenantForm.address_cep || ''} onChange={handleCepChange} maxLength="9" placeholder="00000-000" style={{ marginBottom: 0 }} />
+                                </div>
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                    <label>Logradouro / Endereço</label>
+                                    <input value={tenantForm.address || ''} onChange={e => setTenantForm({...tenantForm, address: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Número</label>
+                                    <input id="tenant_address_num_input" value={tenantForm.address_num || ''} onChange={e => setTenantForm({...tenantForm, address_num: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Complemento</label>
+                                    <input value={tenantForm.address_complement || ''} onChange={e => setTenantForm({...tenantForm, address_complement: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                    <label>Bairro</label>
+                                    <input value={tenantForm.address_neighborhood || ''} onChange={e => setTenantForm({...tenantForm, address_neighborhood: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Cidade</label>
+                                    <input value={tenantForm.address_city || ''} onChange={e => setTenantForm({...tenantForm, address_city: e.target.value})} style={{ marginBottom: 0 }} />
+                                </div>
+                                <div>
+                                    <label>Estado / UF</label>
+                                    <input value={tenantForm.address_state || ''} onChange={e => setTenantForm({...tenantForm, address_state: e.target.value})} maxLength="2" placeholder="UF" style={{ marginBottom: 0 }} />
+                                </div>
+                            </div>
 
                             <label>Logomarca (Imagem)</label>
                             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '1rem' }}>
@@ -202,7 +273,7 @@ const Security = () => {
                                         )}
                                         <div>
                                             <strong style={{ display: 'block' }}>{t.name}</strong>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {t.id} {t.document ? `| Doc: ${t.document}` : ''}</span>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {t.id} {t.document ? `| Doc: ${t.document}` : ''}{t.phone ? ` | Tel: ${t.phone}` : ''}</span>
                                         </div>
                                     </div>
                                     <Edit3 size={16} color="var(--text-muted)" onClick={(e) => { e.stopPropagation(); setTenantForm(t); }} />
@@ -227,7 +298,7 @@ const Security = () => {
                                     <Users size={20} color="#10b981" />
                                     <h3 style={{ margin: 0 }}>Usuários de {selectedTenant.name}</h3>
                                 </div>
-                                <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => setUserForm({ tenant_id: selectedTenant.id, name: '', email: '', password: '', role: 'USER', active: 1 })}>
+                                <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => setUserForm({ tenant_id: selectedTenant.id, name: '', email: '', phone: '', password: '', role: 'USER', active: 1 })}>
                                     <Plus size={16} /> Novo Usuário
                                 </button>
                             </div>
@@ -247,8 +318,8 @@ const Security = () => {
                                         <input type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} required />
                                     </div>
                                     <div>
-                                        <label>{userForm.id ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha de Acesso'}</label>
-                                        <input type="password" value={userForm.password || ''} onChange={e => setUserForm({...userForm, password: e.target.value})} required={!userForm.id} />
+                                        <label>Telefone</label>
+                                        <input value={userForm.phone || ''} onChange={e => setUserForm({...userForm, phone: maskPhone(e.target.value)})} maxLength="15" placeholder="(00) 00000-0000" />
                                     </div>
                                     <div>
                                         <label>Papel (Permissão)</label>
@@ -256,6 +327,10 @@ const Security = () => {
                                             <option value="USER">Usuário Padrão</option>
                                             <option value="ADMIN">Administrador (Admin da Conta)</option>
                                         </select>
+                                    </div>
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <label>{userForm.id ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha de Acesso'}</label>
+                                        <input type="password" value={userForm.password || ''} onChange={e => setUserForm({...userForm, password: e.target.value})} required={!userForm.id} />
                                     </div>
                                     {userForm.id && (
                                         <div style={{ gridColumn: '1 / -1' }}>
@@ -285,7 +360,7 @@ const Security = () => {
                                                     {u.name} {u.role === 'ADMIN' && <span style={{ fontSize: '0.7rem', background: 'rgba(99, 102, 241, 0.2)', color: 'var(--primary)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>ADMIN</span>}
                                                     {!u.active && <span style={{ fontSize: '0.7rem', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>INATIVO</span>}
                                                 </strong>
-                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.email}</span>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.email}{u.phone ? ` | Tel: ${u.phone}` : ''}</span>
                                             </div>
                                             <button className="btn-icon" onClick={() => setUserForm({ ...u, password: '' })} style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
                                                 <Edit3 size={18} />

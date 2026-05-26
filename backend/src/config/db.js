@@ -21,6 +21,16 @@ async function initializeDatabase(db) {
             name TEXT NOT NULL,
             cnpj TEXT UNIQUE,
             logo_url TEXT,
+            website TEXT,
+            instagram TEXT,
+            phone TEXT,
+            address_cep TEXT,
+            address TEXT,
+            address_num TEXT,
+            address_complement TEXT,
+            address_neighborhood TEXT,
+            address_city TEXT,
+            address_state TEXT,
             config TEXT,
             active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -133,6 +143,7 @@ async function initializeDatabase(db) {
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
+            phone TEXT,
             active INTEGER DEFAULT 1,
             FOREIGN KEY (tenant_id) REFERENCES tenants(id)
         )
@@ -162,6 +173,7 @@ async function initializeDatabase(db) {
             value DECIMAL(10, 2) DEFAULT 0,
             photo TEXT,
             status INTEGER DEFAULT 1, -- 1: Ativo, 0: Desativado
+            group_name TEXT DEFAULT 'Outros',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (tenant_id) REFERENCES tenants(id),
@@ -173,33 +185,40 @@ async function initializeDatabase(db) {
 
     // Migração: Atualizar CHECK constraint da tabela products para incluir 'PC'
     try {
-        await db.exec(`
-            BEGIN TRANSACTION;
-            CREATE TABLE products_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tenant_id INTEGER NOT NULL,
-                manufacturer_id INTEGER,
-                name TEXT NOT NULL,
-                unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC', 'DF', 'DM')),
-                value DECIMAL(10, 2) DEFAULT 0,
-                photo TEXT,
-                status INTEGER DEFAULT 1,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-                FOREIGN KEY (manufacturer_id) REFERENCES manufacturers(id)
-            );
-            
-            INSERT INTO products_new (id, tenant_id, manufacturer_id, name, unit, value, photo, status, updated_at, created_at)
-            SELECT id, tenant_id, manufacturer_id, name, unit, value, photo, status, updated_at, created_at FROM products;
-            
-            DROP TABLE products;
-            ALTER TABLE products_new RENAME TO products;
-            COMMIT;
-        `);
-        console.log('[MIGRAÇÃO] Tabela products atualizada com sucesso (unidade PC).');
+        const tableSqlRow = await db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='products'");
+        const needsPcMigration = tableSqlRow && !tableSqlRow.sql.includes("'PC'");
+        if (needsPcMigration) {
+            console.log('[MIGRAÇÃO] Executando migração de unidade PC na tabela products...');
+            await db.exec(`
+                BEGIN TRANSACTION;
+                CREATE TABLE products_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL,
+                    manufacturer_id INTEGER,
+                    name TEXT NOT NULL,
+                    unit TEXT CHECK(unit IN ('CHP', 'UN', 'M', 'M2', 'L', 'CXA', 'PAR', 'H', 'DIA', 'PC', 'DF', 'DM')),
+                    value DECIMAL(10, 2) DEFAULT 0,
+                    photo TEXT,
+                    status INTEGER DEFAULT 1,
+                    group_name TEXT DEFAULT 'Outros',
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                    FOREIGN KEY (manufacturer_id) REFERENCES manufacturers(id)
+                );
+                
+                INSERT INTO products_new (id, tenant_id, manufacturer_id, name, unit, value, photo, status, group_name, updated_at, created_at)
+                SELECT id, tenant_id, manufacturer_id, name, unit, value, photo, status, group_name, updated_at, created_at FROM products;
+                
+                DROP TABLE products;
+                ALTER TABLE products_new RENAME TO products;
+                COMMIT;
+            `);
+            console.log('[MIGRAÇÃO] Tabela products atualizada com sucesso (unidade PC).');
+        }
     } catch (e) {
         try { await db.exec('ROLLBACK;'); } catch(err) {}
+        console.error('[MIGRAÇÃO] Erro ao migrar tabela products:', e.message);
     }
 
     // Migração: Atualizar CHECK constraint da tabela proposals
@@ -260,6 +279,7 @@ async function initializeDatabase(db) {
         { table: 'production_orders', column: 'start_date', type: 'DATETIME' },
         { table: 'production_orders', column: 'end_date', type: 'DATETIME' },
         { table: 'users', column: 'role', type: 'TEXT DEFAULT "USER"' },
+        { table: 'users', column: 'phone', type: 'TEXT' },
         { table: 'proposals', column: 'fabrication_days', type: 'INTEGER DEFAULT 0' },
         { table: 'proposals', column: 'assembly_days', type: 'INTEGER DEFAULT 0' },
         { table: 'proposals', column: 'payment_methods', type: 'TEXT' },
@@ -270,7 +290,18 @@ async function initializeDatabase(db) {
         { table: 'proposal_events', column: 'type', type: 'TEXT DEFAULT "Anotacao"' },
         { table: 'proposal_events', column: 'event_status', type: 'TEXT DEFAULT "ABERTO"' },
         { table: 'proposals', column: 'drive_folder_id', type: 'TEXT' },
-        { table: 'proposals', column: 'drive_folder_url', type: 'TEXT' }
+        { table: 'proposals', column: 'drive_folder_url', type: 'TEXT' },
+        { table: 'products', column: 'group_name', type: 'TEXT DEFAULT "Outros"' },
+        { table: 'tenants', column: 'website', type: 'TEXT' },
+        { table: 'tenants', column: 'instagram', type: 'TEXT' },
+        { table: 'tenants', column: 'phone', type: 'TEXT' },
+        { table: 'tenants', column: 'address_cep', type: 'TEXT' },
+        { table: 'tenants', column: 'address', type: 'TEXT' },
+        { table: 'tenants', column: 'address_num', type: 'TEXT' },
+        { table: 'tenants', column: 'address_complement', type: 'TEXT' },
+        { table: 'tenants', column: 'address_neighborhood', type: 'TEXT' },
+        { table: 'tenants', column: 'address_city', type: 'TEXT' },
+        { table: 'tenants', column: 'address_state', type: 'TEXT' }
     ];
 
     for (const m of migrations) {
@@ -284,6 +315,18 @@ async function initializeDatabase(db) {
         } catch (e) {
             console.error(`[MIGRAÇÃO] Erro ao adicionar coluna ${m.column} à tabela ${m.table}:`, e.message);
         }
+    }
+
+    // Migração de dados: Ajustar os grupos de produtos antigos para os novos grupos
+    try {
+        await db.run("UPDATE products SET group_name = 'Fita' WHERE group_name = 'Fita de borda'");
+        await db.run("UPDATE products SET group_name = 'Servico' WHERE group_name = 'Serviço'");
+        await db.run("UPDATE products SET group_name = 'Ferragem' WHERE group_name IN ('Componente de montagem', 'Ferragens')");
+        await db.run("UPDATE products SET group_name = 'Quimicos' WHERE group_name = 'Colas'");
+        await db.run("UPDATE products SET group_name = 'Outros' WHERE group_name = 'Vidros'");
+        console.log('[MIGRAÇÃO] Grupos de produtos atualizados para os novos nomes com sucesso.');
+    } catch (e) {
+        console.error('[MIGRAÇÃO] Erro ao migrar grupos de produtos:', e.message);
     }
 
     // Event Attachments Table

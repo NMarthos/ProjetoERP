@@ -5,7 +5,7 @@ import { maskPhone, maskDocument } from '../utils/masks';
 import { createPortal } from 'react-dom';
 
 // ── Componente de Modal (Popup) ──────────────────────────────────────────────────
-const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onSave }) => {
+export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onSave }) => {
     const [form, setForm] = useState({
         name: '', type: 'CLIENTE', document: '', email: '', phone: '',
         address: '', address_num: '', address_complement: '', address_neighborhood: '', address_cep: '', address_city: '', notes: '', referrer_id: '', commission_percentage: 0
@@ -69,15 +69,16 @@ const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onS
 
         setSaving(true);
         try {
+            let newId = null;
             if (partner) {
                 await api.put(`/partners/${partner.id}`, form);
             } else {
-                await api.post('/partners', form);
+                const res = await api.post('/partners', form);
+                newId = res.data.id;
             }
-            onSave();
+            onSave(newId);
         } catch (err) { alert('Erro ao salvar parceiro'); }
-        setSaving(false);
-    };
+        setSaving(false);    };
 
     return createPortal(
         <div className="modal-overlay">

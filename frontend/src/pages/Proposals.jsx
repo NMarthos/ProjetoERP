@@ -1,8 +1,11 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash } from 'lucide-react';
+import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
+import { PartnerModal } from './Partners';
 
 const maskCurrency = (v) => {
     if (!v) return 'R$ 0,00';
@@ -28,6 +31,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [partnerModalOpen, setPartnerModalOpen] = useState(false);
 
     useEffect(() => {
         fetchPartners();
@@ -83,7 +87,16 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
 
                 <form onSubmit={handleSubmit}>
                     <div style={{ marginBottom: '1rem' }}>
-                        <label>Parceiro (Cliente/Arquiteto)</label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                            <label style={{ margin: 0 }}>Parceiro (Cliente/Arquiteto) *</label>
+                            <button
+                                type="button"
+                                onClick={() => setPartnerModalOpen(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '700', padding: 0 }}
+                            >
+                                <UserPlus size={15} /> Novo Cliente
+                            </button>
+                        </div>
                         <select 
                             required 
                             value={form.partner_id} 
@@ -111,8 +124,6 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                         />
                     </div>
 
-
-
                     {error && <div style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</div>}
 
                     <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem' }}>
@@ -120,6 +131,21 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                         <button type="submit" disabled={loading} className="btn-premium" style={{ flex: 1 }}>{loading ? 'Salvando...' : 'Salvar Proposta'}</button>
                     </div>
                 </form>
+                {partnerModalOpen && (
+                    <PartnerModal
+                        partner={null}
+                        allPartners={partners}
+                        initialTab="dados"
+                        onClose={() => setPartnerModalOpen(false)}
+                        onSave={async (newId) => {
+                            await fetchPartners();
+                            if (newId) {
+                                setForm(f => ({ ...f, partner_id: newId }));
+                            }
+                            setPartnerModalOpen(false);
+                        }}
+                    />
+                )}
             </div>
         </div>,
         document.body
@@ -265,7 +291,7 @@ const EventModal = ({ proposal, onClose }) => {
     const [events, setEvents] = useState([]);
     const [history, setHistory] = useState([]);
     const [activeTab, setActiveTab] = useState('eventos');
-    const [form, setForm] = useState({ title: '', event_date: '', event_time: '', description: '', type: 'Anotacao', event_status: 'ABERTO', monitor: false });
+    const [form, setForm] = useState({ title: '', event_date: '', event_time: '', description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false });
     const [saving, setSaving] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [eventAttachments, setEventAttachments] = useState([]);
@@ -273,7 +299,7 @@ const EventModal = ({ proposal, onClose }) => {
     const [cardUploadingId, setCardUploadingId] = useState(null);
     const eventFileRef = useRef(null);
 
-    const EMPTY_FORM = { title: '', event_date: '', event_time: '', description: '', type: 'Anotacao', event_status: 'ABERTO', monitor: false };
+    const EMPTY_FORM = { title: '', event_date: '', event_time: '', description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false };
 
     useEffect(() => {
         fetchEvents();
@@ -292,6 +318,18 @@ const EventModal = ({ proposal, onClose }) => {
 
     const handleSaveEvent = async (e) => {
         e.preventDefault();
+        if (form.type === 'Levantamento de medidas') {
+            const desc = form.description || '';
+            const descLower = desc.toLowerCase();
+            const hasLogradouro = descLower.includes('logradouro');
+            const hasNumero = descLower.includes('numero') || descLower.includes('número');
+            const hasComplemento = descLower.includes('complemento');
+            
+            if (!hasLogradouro || !hasNumero || !hasComplemento) {
+                alert('Para Levantamento de Medidas, informe na Descrição os campos:\nLogradouro:\nNumero:\nComplemento:');
+                return;
+            }
+        }
         setSaving(true);
         if (editingId) {
             await api.put(`/events/${editingId}`, form);
@@ -312,7 +350,7 @@ const EventModal = ({ proposal, onClose }) => {
             event_date: ev.event_date || '',
             event_time: ev.event_time || '',
             description: ev.description || '',
-            type: ev.type || 'Anotacao',
+            type: ev.type || 'Levantamento de medidas',
             event_status: ev.event_status || 'ABERTO',
             monitor: ev.monitor === 1,
         });
@@ -407,7 +445,7 @@ const EventModal = ({ proposal, onClose }) => {
 
     return createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '980px', width: '98%', maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-content" style={{ maxWidth: '1280px', width: '98%', maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
@@ -427,10 +465,10 @@ const EventModal = ({ proposal, onClose }) => {
                 </div>
 
                 {activeTab === 'eventos' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '1.5rem', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: editingId ? '360px 1fr 320px' : '400px 1fr', gap: '1.5rem', flex: 1, overflow: 'hidden', minHeight: 0 }}>
 
                         {/* LEFT — Form card */}
-                        <div className="glass card" style={{ border: `2px solid ${editingId ? 'var(--primary)' : 'var(--border)'}`, height: 'fit-content', transition: 'border-color 0.2s' }}>
+                        <div className="glass card" style={{ border: `2px solid ${editingId ? 'var(--primary)' : 'var(--border)'}`, height: '100%', overflowY: 'auto', transition: 'border-color 0.2s' }}>
                             <h3 style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '1rem' }}>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {editingId ? <Pencil size={18} color="var(--primary)" /> : <Plus size={18} color="var(--primary)" />}
@@ -447,6 +485,41 @@ const EventModal = ({ proposal, onClose }) => {
                                     <label>Título</label>
                                     <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ex: Reunião com cliente, Medição..." />
                                 </div>
+                                <div>
+                                    <label>Tipo</label>
+                                    <select 
+                                        required 
+                                        value={form.type} 
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            let desc = form.description || '';
+                                            if (val === 'Levantamento de medidas') {
+                                                if (desc.trim() === '' || !desc.toLowerCase().includes('logradouro')) {
+                                                    desc = 'Logradouro: \nNumero: \nComplemento: ';
+                                                }
+                                            } else {
+                                                // Remove address template lines
+                                                desc = desc
+                                                    .split('\n')
+                                                    .filter(line => {
+                                                        const l = line.trim().toLowerCase();
+                                                        return !l.startsWith('logradouro:') && 
+                                                               !l.startsWith('numero:') && 
+                                                               !l.startsWith('número:') && 
+                                                               !l.startsWith('complemento:');
+                                                    })
+                                                    .join('\n')
+                                                    .trim();
+                                            }
+                                            setForm({ ...form, type: val, description: desc });
+                                        }}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
+                                    >
+                                        <option value="Levantamento de medidas">Levantamento de medidas</option>
+                                        <option value="Confirmação de medidas">Confirmação de medidas</option>
+                                        <option value="Outro">Outro</option>
+                                    </select>
+                                </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                                     <div>
                                         <label>Data</label>
@@ -459,7 +532,12 @@ const EventModal = ({ proposal, onClose }) => {
                                 </div>
                                 <div>
                                     <label>Descrição / Observações</label>
-                                    <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Detalhes adicionais..." style={{ minHeight: '70px', resize: 'vertical' }} />
+                                    <textarea 
+                                        value={form.description} 
+                                        onChange={e => setForm({ ...form, description: e.target.value })} 
+                                        placeholder={form.type === 'Levantamento de medidas' ? "Logradouro:\nNumero:\nComplemento:" : "Detalhes adicionais..."} 
+                                        style={{ minHeight: '100px', resize: 'vertical' }} 
+                                    />
                                 </div>
                                 {/* Situação — only in edit mode */}
                                 {editingId && (
@@ -495,54 +573,9 @@ const EventModal = ({ proposal, onClose }) => {
                                     {saving ? 'Salvando...' : editingId ? <><Pencil size={16} /> Salvar Alterações</> : <><Plus size={16} /> Salvar Evento</>}
                                 </button>
                             </form>
-
-                            {/* Attachments section — only in edit mode */}
-                            {editingId && (
-                                <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <Paperclip size={13} /> Anexos do Evento ({eventAttachments.length})
-                                    </div>
-                                    <div
-                                        onClick={() => eventFileRef.current?.click()}
-                                        style={{ border: '2px dashed var(--border)', borderRadius: '10px', padding: '12px', textAlign: 'center', cursor: 'pointer', background: 'rgba(99,102,241,0.03)', transition: 'border-color 0.2s', marginBottom: '10px' }}
-                                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                                    >
-                                        <UploadCloud size={20} color="var(--primary)" style={{ marginBottom: '4px' }} />
-                                        <div style={{ fontSize: '0.78rem', fontWeight: '600' }}>{uploading ? 'Enviando...' : 'Clique para anexar'}</div>
-                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PDF, imagens, documentos</div>
-                                        <input ref={eventFileRef} type="file" style={{ display: 'none' }} onChange={handleEventFileUpload} disabled={uploading} />
-                                    </div>
-                                    {eventAttachments.length > 0 && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            {eventAttachments.map(att => {
-                                                const isImg = (att.type && att.type.startsWith('image')) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.url || att.name || '');
-                                                return (
-                                                    <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '8px 10px', border: '1px solid var(--border)' }}>
-                                                        {isImg ? (
-                                                            <img src={att.url} alt={att.name} style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '5px', flexShrink: 0 }} />
-                                                        ) : (
-                                                            <div style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(99,102,241,0.15)', borderRadius: '5px', flexShrink: 0 }}>
-                                                                <File size={16} color="var(--primary)" />
-                                                            </div>
-                                                        )}
-                                                        <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: 'white', fontWeight: '600', fontSize: '0.78rem', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                                                            onMouseEnter={e => e.target.style.color = 'var(--primary)'}
-                                                            onMouseLeave={e => e.target.style.color = 'white'}
-                                                        >{att.name}</a>
-                                                        <button onClick={() => handleDeleteEventAttachment(att.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', flexShrink: 0 }}>
-                                                            <Trash size={15} />
-                                                        </button>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                         </div>
 
-                        {/* RIGHT — List card */}
+                        {/* MIDDLE — List card */}
                         <div className="glass card" style={{ border: '2px solid var(--border)', overflowY: 'auto' }}>
                             <h3 style={{ marginBottom: '1.25rem', fontSize: '1rem' }}>
                                 Eventos Cadastrados <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '400' }}>({events.length})</span>
@@ -556,22 +589,43 @@ const EventModal = ({ proposal, onClose }) => {
                                         const isMonitored = ev.monitor === 1;
                                         const isTarefa = ev.type === 'Tarefa';
                                         const isFechado = ev.event_status === 'FECHADO';
-                                        const typeColor = isTarefa ? '#818cf8' : '#94a3b8';
+                                        const hasAttachments = (ev.attachment_count || 0) > 0;
                                         const statusColor = isFechado ? '#22c55e' : '#f59e0b';
+                                        
+                                        const getTypeBadgeConfig = (type) => {
+                                            switch (type) {
+                                                case 'Levantamento de medidas':
+                                                    return { bg: 'rgba(59,130,246,0.15)', color: '#3b82f6', label: 'Levantamento' };
+                                                case 'Confirmação de medidas':
+                                                    return { bg: 'rgba(234,179,8,0.15)', color: '#eab308', label: 'Confirmação' };
+                                                case 'Tarefa':
+                                                    return { bg: 'rgba(129,140,248,0.15)', color: '#818cf8', label: '✓ Tarefa' };
+                                                case 'Outro':
+                                                default:
+                                                    return { bg: 'rgba(148,163,184,0.15)', color: '#94a3b8', label: type || '✎ Anotação' };
+                                            }
+                                        };
+                                        const typeConfig = getTypeBadgeConfig(ev.type);
+
                                         return (
-                                            <div key={ev.id} style={{ padding: '14px 16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: `1.5px solid ${isMonitored ? '#eab308' : isFechado ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`, opacity: isFechado ? 0.75 : 1 }}>
+                                            <div key={ev.id} style={{ padding: '14px 16px', borderRadius: '12px', background: editingId === ev.id ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${editingId === ev.id ? 'var(--primary)' : isMonitored ? '#eab308' : isFechado ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`, opacity: isFechado ? 0.75 : 1, transition: 'all 0.2s' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                                                     <div style={{ flex: 1, minWidth: 0 }}>
                                                         {/* Type + Status badges */}
                                                         <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                                            <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: isTarefa ? 'rgba(129,140,248,0.15)' : 'rgba(148,163,184,0.15)', color: typeColor, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
-                                                                {isTarefa ? '✓ Tarefa' : '✎ Anotação'}
+                                                            <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: typeConfig.bg, color: typeConfig.color, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                                                                {typeConfig.label}
                                                             </span>
                                                             <span
                                                                 style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: isFechado ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)', color: statusColor, letterSpacing: '0.4px', textTransform: 'uppercase' }}
                                                             >
                                                                 {isFechado ? '● Fechado' : '○ Aberto'}
                                                             </span>
+                                                            {hasAttachments && (
+                                                                <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '2px 7px', borderRadius: '5px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                    <Paperclip size={10} /> {ev.attachment_count}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         {/* Title */}
                                                         <div style={{ fontWeight: '700', fontSize: '0.92rem', marginBottom: '3px', textDecoration: isFechado ? 'line-through' : 'none', color: isFechado ? 'var(--text-muted)' : 'inherit' }}>
@@ -621,6 +675,56 @@ const EventModal = ({ proposal, onClose }) => {
                                 </div>
                             )}
                         </div>
+
+                        {/* RIGHT — Attachments (only in edit mode) */}
+                        {editingId && (
+                            <div className="glass card" style={{ border: '2px solid var(--border)', height: '100%', overflowY: 'auto' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Paperclip size={16} color="var(--primary)" /> Anexos do Evento ({eventAttachments.length})
+                                </div>
+                                <div
+                                    onClick={() => eventFileRef.current?.click()}
+                                    style={{ border: '2px dashed var(--border)', borderRadius: '12px', padding: '20px', textAlign: 'center', cursor: 'pointer', background: 'rgba(99,102,241,0.03)', transition: 'all 0.2s', marginBottom: '1.25rem' }}
+                                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                                >
+                                    <UploadCloud size={28} color="var(--primary)" style={{ marginBottom: '8px' }} />
+                                    <div style={{ fontSize: '0.85rem', fontWeight: '700' }}>{uploading ? 'Enviando...' : 'Anexar Arquivo'}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>PDF, imagens, documentos</div>
+                                    <input ref={eventFileRef} type="file" style={{ display: 'none' }} onChange={handleEventFileUpload} disabled={uploading} />
+                                </div>
+                                
+                                {eventAttachments.length > 0 ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {eventAttachments.map(att => {
+                                            const isImg = (att.type && att.type.startsWith('image')) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.url || att.name || '');
+                                            return (
+                                                <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px', border: '1px solid var(--border)' }}>
+                                                    {isImg ? (
+                                                        <img src={att.url} alt={att.name} style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
+                                                    ) : (
+                                                        <div style={{ width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(99,102,241,0.15)', borderRadius: '6px', flexShrink: 0 }}>
+                                                            <File size={18} color="var(--primary)" />
+                                                        </div>
+                                                    )}
+                                                    <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: 'white', fontWeight: '600', fontSize: '0.82rem', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                        onMouseEnter={e => e.target.style.color = 'var(--primary)'}
+                                                        onMouseLeave={e => e.target.style.color = 'white'}
+                                                    >{att.name}</a>
+                                                    <button onClick={() => handleDeleteEventAttachment(att.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
+                                                        <Trash size={18} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                                        Nenhum anexo para este evento.
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -1181,7 +1285,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
 
         {fullscreenImage && createPortal(
             <div
-                onClick={() => setFullscreenImage(null)}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setFullscreenImage(null); }}
                 style={{
                     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                     background: 'rgba(0,0,0,0.95)',
@@ -1193,10 +1297,22 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                 <img
                     src={fullscreenImage}
                     alt="Visualização"
-                    style={{ maxWidth: '92%', maxHeight: '92vh', borderRadius: '12px', objectFit: 'contain', boxShadow: '0 0 80px rgba(0,0,0,0.9)' }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ maxWidth: '92%', maxHeight: '92vh', borderRadius: '12px', objectFit: 'contain', boxShadow: '0 0 80px rgba(0,0,0,0.9)', cursor: 'default' }}
                 />
-                <div style={{ position: 'absolute', top: '20px', right: '20px', color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem', background: 'rgba(0,0,0,0.5)', padding: '6px 14px', borderRadius: '8px' }}>
-                    Clique para fechar
+                <button
+                    onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }}
+                    style={{
+                        position: 'absolute', top: '20px', right: '20px',
+                        background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)',
+                        color: 'white', borderRadius: '50%', width: '40px', height: '40px',
+                        cursor: 'pointer', fontSize: '1.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background 0.2s'
+                    }}
+                    title="Fechar"
+                >✕</button>
+                <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', background: 'rgba(0,0,0,0.5)', padding: '4px 14px', borderRadius: '8px' }}>
+                    Clique fora da imagem para fechar
                 </div>
             </div>,
             document.body
@@ -1221,10 +1337,21 @@ const Proposals = ({ user }) => {
     const [completionModalData, setCompletionModalData] = useState({ show: false, proposal: null });
     const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
     const [attachmentsModalData, setAttachmentsModalData] = useState({ show: false, proposal: null });
+    const [activeStatusTab, setActiveStatusTab] = useState('ABERTO');
+    const [globalPartnerModalOpen, setGlobalPartnerModalOpen] = useState(false);
+    const [partners, setPartners] = useState([]);
 
     useEffect(() => {
         fetchProposals();
+        fetchPartners();
     }, []);
+
+    const fetchPartners = async () => {
+        try {
+            const r = await api.get('/partners');
+            setPartners(r.data);
+        } catch (e) { console.error(e); }
+    };
 
     const fetchProposals = async () => {
         setLoading(true);
@@ -1248,17 +1375,38 @@ const Proposals = ({ user }) => {
     };
 
     const statusConfig = {
-        'ABERTO': { color: '#eab308', icon: <Clock size={16} /> },
-        'APROVADO': { color: '#10b981', icon: <CheckCircle size={16} /> },
-        'REJEITADO': { color: '#ef4444', icon: <XCircle size={16} /> },
-        'ARQUIVADO': { color: 'var(--text-muted)', icon: <Clock size={16} /> }
+        'ABERTO': { color: '#eab308', icon: <Clock size={16} />, label: 'Aberta' },
+        'APROVADO': { color: '#10b981', icon: <CheckCircle size={16} />, label: 'Aprovada' },
+        'REJEITADO': { color: '#ef4444', icon: <XCircle size={16} />, label: 'Declinada' },
+        'ARQUIVADO': { color: 'var(--text-muted)', icon: <Clock size={16} />, label: 'Arquivada' }
     };
 
-    const filtered = proposals.filter(p => 
-        p.partner_name?.toLowerCase().includes(search.toLowerCase()) ||
-        p.description?.toLowerCase().includes(search.toLowerCase()) ||
-        p.id.toString() === search
-    );
+    const filtered = proposals.filter(p => {
+        const matchesSearch = p.partner_name?.toLowerCase().includes(search.toLowerCase()) ||
+                             p.description?.toLowerCase().includes(search.toLowerCase()) ||
+                             p.id.toString() === search;
+        
+        // Se estiver pesquisando por ID exato, ignora a aba de status para encontrar a proposta
+        if (search && p.id.toString() === search) return true;
+
+        return matchesSearch && p.status === activeStatusTab;
+    });
+
+    const tabStyle = (status) => ({
+        padding: '1rem 1.5rem',
+        cursor: 'pointer',
+        fontSize: '0.95rem',
+        fontWeight: activeStatusTab === status ? '700' : '500',
+        color: activeStatusTab === status ? 'var(--primary)' : 'var(--text-muted)',
+        borderBottom: activeStatusTab === status ? '3px solid var(--primary)' : '3px solid transparent',
+        transition: 'all 0.2s',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        background: activeStatusTab === status ? 'rgba(99,102,241,0.05)' : 'transparent',
+        borderTopLeftRadius: '12px',
+        borderTopRightRadius: '12px',
+    });
 
     return (
         <div style={{ padding: '2rem' }}>
@@ -1267,9 +1415,14 @@ const Proposals = ({ user }) => {
                     <h1 style={{ fontSize: '2rem', margin: 0 }}>Gestão Comercial</h1>
                     <p style={{ color: 'var(--text-muted)' }}>Acompanhamento de orçamentos e projetos</p>
                 </div>
-                <button className="btn-premium" onClick={() => { setSelectedProposal(null); setModalOpen(true); }}>
-                    <Plus size={20} /> Nova Proposta
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '10px', fontWeight: '600' }} onClick={() => setGlobalPartnerModalOpen(true)}>
+                        <UserPlus size={18} /> Novo Cliente
+                    </button>
+                    <button className="btn-premium" onClick={() => { setSelectedProposal(null); setModalOpen(true); }}>
+                        <Plus size={20} /> Nova Proposta
+                    </button>
+                </div>
             </div>
 
             <div className="glass card" style={{ marginBottom: '2rem', padding: '1rem', display: 'flex', gap: '1rem' }}>
@@ -1286,7 +1439,29 @@ const Proposals = ({ user }) => {
                 <button onClick={fetchProposals} className="btn-icon" title="Atualizar"><BellRing size={20} /></button>
             </div>
 
-            <div className="glass card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Tabs de Status */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '0', gap: '5px' }}>
+                <div style={tabStyle('ABERTO')} onClick={() => setActiveStatusTab('ABERTO')}>
+                    <Clock size={18} /> Aberta
+                    <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
+                        {proposals.filter(p => p.status === 'ABERTO').length}
+                    </span>
+                </div>
+                <div style={tabStyle('APROVADO')} onClick={() => setActiveStatusTab('APROVADO')}>
+                    <CheckCircle size={18} /> Aprovada
+                    <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
+                        {proposals.filter(p => p.status === 'APROVADO').length}
+                    </span>
+                </div>
+                <div style={tabStyle('REJEITADO')} onClick={() => setActiveStatusTab('REJEITADO')}>
+                    <XCircle size={18} /> Declinada
+                    <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
+                        {proposals.filter(p => p.status === 'REJEITADO').length}
+                    </span>
+                </div>
+            </div>
+
+            <div className="glass card" style={{ padding: 0, overflow: 'hidden', borderTopLeftRadius: 0 }}>
                 {loading ? (
                     <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando dados...</div>
                 ) : (
@@ -1320,13 +1495,14 @@ const Proposals = ({ user }) => {
                                                 <td>{p.description}</td>
                                                 <td>
                                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: `${cfg.color}15`, color: cfg.color, fontSize: '0.75rem', fontWeight: '700' }}>
-                                                        {cfg.icon} {p.status}
+                                                        {cfg.icon} {cfg.label || p.status}
                                                     </span>
                                                 </td>
                                                 <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                         <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
+                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p, autoShowPrint: 'PRESENTATION' })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
                                                         <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
                                                         {p.status === 'ABERTO' && (
                                                             <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
@@ -1373,13 +1549,25 @@ const Proposals = ({ user }) => {
                     const wasAutoShowPrint = budgetModalData.autoShowPrint;
                     const p = budgetModalData.proposal;
                     setBudgetModalData({ show: false, proposal: null });
-                    if (wasAutoShowPrint) {
+                    if (wasAutoShowPrint && wasAutoShowPrint !== 'PRESENTATION') {
                         // Volta para a tela de conclusão da proposta
                         setCompletionModalData({ show: true, proposal: p });
                     }
                 }}
                 onSave={() => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); }}
             />}
+            {globalPartnerModalOpen && (
+                <PartnerModal
+                    partner={null}
+                    allPartners={partners}
+                    initialTab="dados"
+                    onClose={() => setGlobalPartnerModalOpen(false)}
+                    onSave={() => {
+                        fetchPartners();
+                        setGlobalPartnerModalOpen(false);
+                    }}
+                />
+            )}
         </div>
     );
 };

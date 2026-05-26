@@ -1,8 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { X, Plus, Search, Trash2, PackagePlus, PlusCircle, Pencil, FileText, Image, Paperclip, LayoutGrid, ClipboardList, User, Loader2, Upload, Package } from 'lucide-react';
+import { X, Plus, Search, Trash2, PackagePlus, PlusCircle, Pencil, FileText, Image, Paperclip, LayoutGrid, ClipboardList, User, Loader2, Upload, Package, Layers, Scissors, Wrench, Droplet, Paintbrush, HelpCircle, Briefcase, AlertCircle } from 'lucide-react';
 import { maskCurrency, parseCurrency, maskPhone } from '../utils/masks';
 import { createPortal } from 'react-dom';
+
+// ── Função Auxiliar de Auto-Previsão de Grupo ────────────────────────────────
+const predictGroup = (name, unit) => {
+    if (!name) return 'Outros';
+    const n = name.toUpperCase();
+    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Servico';
+    if (n.startsWith('MDF') || n.includes('MDF')) return 'Mdf';
+    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fita';
+    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Ferragem';
+    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragem';
+    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Quimicos';
+    if (n.includes('VERNIZ') || n.includes('PINTURA') || n.includes('LACA') || n.includes('ACABAMENTO')) return 'Acabamento';
+    return 'Outros';
+};
+
+const GROUP_SEQUENCE = [
+    { key: 'Mdf', label: 'MDF', icon: Layers },
+    { key: 'Fita', label: 'Fita', icon: Scissors },
+    { key: 'Ferragem', label: 'Ferragem', icon: Wrench },
+    { key: 'Quimicos', label: 'Químicos', icon: Droplet },
+    { key: 'Acabamento', label: 'Acabamento', icon: Paintbrush },
+    { key: 'Outros', label: 'Outro', icon: HelpCircle },
+    { key: 'Servico', label: 'Serviço', icon: Briefcase }
+];
 
 const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint = false }) => {
     const [products, setProducts] = useState([]);
@@ -10,6 +34,9 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
     const [budgetItems, setBudgetItems] = useState([]);
     const [activeItemId, setActiveItemId] = useState(null);
+    const [selectedGroup, setSelectedGroup] = useState('Mdf');
+    const [showDivergencesModal, setShowDivergencesModal] = useState(false);
+    const [divergences, setDivergences] = useState([]);
     
     // Create / Edit Item Modal State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -28,7 +55,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     // New Product Modal (full form — matches Products page)
     const [showProductModal, setShowProductModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null); // null = create, object = edit
-    const [newProduct, setNewProduct] = useState({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1 });
+    const [newProduct, setNewProduct] = useState({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1, group_name: 'Outros' });
     const [newProductDisplayValue, setNewProductDisplayValue] = useState('0,00');
     const [newProductUploading, setNewProductUploading] = useState(false);
     const [newProductSaving, setNewProductSaving] = useState(false);
@@ -126,7 +153,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
         // If opened from Proposal Completion Modal, jump straight to print preview
         if (autoShowPrint) {
-            setPrintType('PROPOSAL');
+            setPrintType(typeof autoShowPrint === 'string' ? autoShowPrint : 'PROPOSAL');
             setShowPrint(true);
         }
     }, [proposal.id]);
@@ -225,11 +252,41 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         const isSelected = activeItem.products.some(sp => sp.product.id === p.id);
         if (isSelected) return false;
         
+        // Filter by selected sequence group
+        const pGroup = p.group_name || 'Outros';
+        if (pGroup !== selectedGroup) return false;
+        
         if (search) {
             return p.name.toLowerCase().includes(search.toLowerCase());
         }
         return true;
     });
+
+    const suggestedEdgeBands = (() => {
+        if (!activeItem) return [];
+        const mdfs = activeItem.products.filter(sp => {
+            const name = sp.product.name.toUpperCase();
+            return name.startsWith('MDF');
+        });
+        if (mdfs.length === 0) return [];
+
+        const baseNames = mdfs.map(sp => {
+            let name = sp.product.name;
+            name = name.replace(/^(mdf|MDF)\s*/, '').trim();
+            name = name.replace(/\s*\d+mm$/i, '').trim();
+            return name.toLowerCase();
+        });
+
+        return products.filter(p => {
+            const isSelected = activeItem.products.some(sp => sp.product.id === p.id);
+            if (isSelected) return false;
+
+            const nameLower = p.name.toLowerCase();
+            if (!nameLower.startsWith('fb')) return false;
+
+            return baseNames.some(base => nameLower.includes(base));
+        });
+    })();
 
     const handleAddProduct = (product) => {
         if (!activeItem) return;
@@ -239,6 +296,11 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         let unitValue = product.value || 0;
         if (customPriceInput[product.id] !== undefined) {
             unitValue = parseCurrency(customPriceInput[product.id]);
+        }
+
+        if (unitValue <= 0) {
+            alert('Não é permitido adicionar um produto que não tenha preço cadastrado.');
+            return;
         }
 
         const newItemProd = {
@@ -360,22 +422,23 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         }
     };
 
-    const validateBudget = () => {
+    const checkDivergences = () => {
+        const list = [];
         for (const item of budgetItems) {
-            const hasDiaService = item.products.some(p => {
-                const unit = p.product.unit?.toUpperCase();
-                return ['DIA', 'DF', 'DM'].includes(unit);
-            });
-            if (!hasDiaService) {
-                alert(`O item "${item.name}" não possui custo de fabricação/montagem informado. Adicione um serviço do tipo "DIA", "DF" ou "DM" antes de sair.`);
-                return false;
+            // 1. Check Service
+            const hasService = item.products.some(p => p.product.group_name === 'Servico');
+            if (!hasService) {
+                list.push({
+                    itemName: item.name,
+                    type: 'Serviço',
+                    message: 'Falta custo de serviço. Este item não possui nenhum serviço/diária adicionado.'
+                });
             }
         }
-        return true;
+        return list;
     };
 
     const handleSaveBudget = async () => {
-        if (!validateBudget()) return;
         await persistBudget(budgetItems);
         onSave();
     };
@@ -386,8 +449,18 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
     const handlePrint = () => {
         const oldTitle = document.title;
-        const prefix = printType === 'PROPOSAL' ? 'Proposta' : 'Lista Materiais';
-        document.title = `${prefix} ${String(proposal.id).padStart(4, '0')}`;
+        if (printType === 'PRESENTATION') {
+            const proposalNum = String(proposal.id).padStart(4, '0');
+            const clientName = proposal.partner_name || '';
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('pt-BR').replace(/\//g, '-');
+            const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(/:/g, '-');
+            const version = `${dateStr}_${timeStr}`;
+            document.title = `Apresentacao_${proposalNum}_v${version}-${clientName}`;
+        } else {
+            const prefix = printType === 'PROPOSAL' ? 'Proposta' : 'Lista Materiais';
+            document.title = `${prefix} ${String(proposal.id).padStart(4, '0')}`;
+        }
         window.print();
         document.title = oldTitle;
     };
@@ -408,7 +481,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const closeProductModal = () => {
         setShowProductModal(false);
         setEditingProduct(null);
-        setNewProduct({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1 });
+        setNewProduct({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1, group_name: 'Outros' });
         setNewProductDisplayValue('0,00');
     };
 
@@ -421,6 +494,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
             manufacturer_id: product.manufacturer_id || '',
             photo: product.photo || '',
             status: product.status ?? 1,
+            group_name: product.group_name || 'Outros',
         });
         setNewProductDisplayValue(maskCurrency(product.value));
         setShowProductModal(true);
@@ -586,9 +660,17 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     {/* Name + Unit */}
                                     <div style={{ flex: 1 }}>
                                         <label>Nome *</label>
-                                        <input required value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Dobradiça Blum 110°" style={{ marginBottom: '12px' }} />
+                                        <input required value={newProduct.name} onChange={e => {
+                                            const val = e.target.value;
+                                            const predicted = predictGroup(val, newProduct.unit);
+                                            setNewProduct(p => ({ ...p, name: val, group_name: predicted }));
+                                        }} placeholder="Ex: Dobradiça Blum 110°" style={{ marginBottom: '12px' }} />
                                         <label>Unidade</label>
-                                        <select value={newProduct.unit} onChange={e => setNewProduct(p => ({ ...p, unit: e.target.value }))}>
+                                        <select value={newProduct.unit} onChange={e => {
+                                            const val = e.target.value;
+                                            const predicted = predictGroup(newProduct.name, val);
+                                            setNewProduct(p => ({ ...p, unit: val, group_name: predicted }));
+                                        }}>
                                             {[['CHP','Chapa'],['UN','Unidade'],['M','Metro'],['M2','Metro²'],['L','Litro'],['CXA','Caixa'],['PAR','Par'],['H','Hora'],['DIA','Dia'],['PC','Peça'],['DF','Diária fábrica'],['DM','Diária montagem']].map(([k,v]) => (
                                                 <option key={k} value={k}>{v}</option>
                                             ))}
@@ -597,7 +679,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 </div>
 
                                 {/* Value + Manufacturer */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                                     <div>
                                         <label>Valor Unitário (R$)</label>
                                         <input
@@ -618,6 +700,19 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             {manufacturers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                         </select>
                                     </div>
+                                </div>
+
+                                {/* Group Selection */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                                    <div>
+                                        <label>Grupo / Categoria *</label>
+                                        <select value={newProduct.group_name} onChange={e => setNewProduct(p => ({ ...p, group_name: e.target.value }))}>
+                                            {['Mdf', 'Fita', 'Ferragem', 'Quimicos', 'Acabamento', 'Servico', 'Outros'].map(g => (
+                                                <option key={g} value={g}>{g}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div></div>
                                 </div>
 
                                 {/* Status — toggle switch */}
@@ -647,6 +742,52 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* DIVERGENCES WARNING MODAL */}
+                {showDivergencesModal && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '24px' }}>
+                        <div style={{ background: '#0f172a', border: '2.5px solid #ef4444', padding: '2rem', borderRadius: '16px', width: '650px', maxWidth: '95%', boxShadow: '0 0 50px rgba(239,68,68,0.2)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
+                                <AlertCircle size={32} color="#ef4444" />
+                                <h3 style={{ margin: 0, color: '#ef4444', fontSize: '1.4rem' }}>
+                                    Divergências no Orçamento
+                                </h3>
+                            </div>
+                            
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                                Os seguintes itens estão em desacordo com as regras comerciais do ERP. Por favor, corrija-os antes de gerar a proposta:
+                            </p>
+
+                            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', background: 'rgba(0,0,0,0.3)', padding: '15px', maxHeight: '300px', overflowY: 'auto', marginBottom: '1.5rem' }}>
+                                {divergences.map((div, index) => (
+                                    <div key={index} style={{ borderBottom: index < divergences.length - 1 ? '1px solid var(--border)' : 'none', paddingBottom: '12px', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <span style={{ fontWeight: 'bold', color: 'var(--primary)', fontSize: '0.95rem' }}>
+                                                {div.itemName}
+                                            </span>
+                                            <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                {div.type}
+                                            </span>
+                                        </div>
+                                        <div style={{ color: 'var(--text)', fontSize: '0.85rem', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
+                                            {div.message}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button 
+                                    onClick={() => setShowDivergencesModal(false)} 
+                                    className="btn-premium" 
+                                    style={{ padding: '10px 24px', background: '#ef4444', borderColor: '#ef4444', color: '#fff' }}
+                                >
+                                    Voltar e Corrigir
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -850,16 +991,144 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 <PlusCircle size={20} />
                             </button>
                         </div>
+                        
+                        {/* Sequence filter bar */}
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'space-between', 
+                            marginBottom: '15px', 
+                            background: 'rgba(255,255,255,0.02)', 
+                            padding: '8px 10px', 
+                            borderRadius: '12px', 
+                            border: '1.5px solid var(--border)',
+                            overflowX: 'auto',
+                            gap: '4px'
+                        }}>
+                            {GROUP_SEQUENCE.map((group, idx) => {
+                                const Icon = group.icon;
+                                const isActive = selectedGroup === group.key;
+                                return (
+                                    <React.Fragment key={group.key}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedGroup(group.key);
+                                                setSearch('');
+                                            }}
+                                            style={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                background: isActive ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                                                border: isActive ? '1px solid var(--primary)' : '1px solid transparent',
+                                                borderRadius: '8px',
+                                                padding: '6px 8px',
+                                                cursor: 'pointer',
+                                                color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                                                transition: 'all 0.2s',
+                                                flex: 1,
+                                                minWidth: '55px',
+                                                outline: 'none'
+                                            }}
+                                            title={group.label}
+                                        >
+                                            <Icon size={18} />
+                                            <span style={{ fontSize: '0.65rem', fontWeight: isActive ? '700' : '500', whiteSpace: 'nowrap' }}>{group.label}</span>
+                                        </button>
+                                        {idx < GROUP_SEQUENCE.length - 1 && (
+                                            <span style={{ color: 'rgba(255,255,255,0.08)', fontSize: '0.75rem', userSelect: 'none' }}>➔</span>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </div>
+
                         <div style={{ position: 'relative', marginBottom: '10px' }}>
                             <Search size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
                             <input placeholder="Buscar produto..." style={{ paddingLeft: '38px', marginBottom: 0 }} value={search} onChange={e => setSearch(e.target.value)} />
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
-                            {loading ? <p style={{padding: '10px', textAlign: 'center'}}>Carregando...</p> : 
-                             !activeItem ? <p style={{padding: '10px', textAlign: 'center', color:'var(--text-muted)'}}>Selecione um item acima</p> :
-                             availableProducts.length === 0 ? <p style={{padding: '10px', textAlign: 'center', color:'var(--text-muted)', fontSize:'0.85rem'}}>Nenhum produto encontrado</p> :
-                             availableProducts.map(p => {
+                            {loading ? (
+                                <p style={{padding: '10px', textAlign: 'center'}}>Carregando...</p>
+                            ) : !activeItem ? (
+                                <p style={{padding: '10px', textAlign: 'center', color:'var(--text-muted)'}}>Selecione um item acima</p>
+                            ) : (
+                                <>
+                                    {selectedGroup === 'Fita' && suggestedEdgeBands.length > 0 && (
+                                        <div style={{ background: 'rgba(167,139,250,0.06)', borderBottom: '1.5px solid rgba(167,139,250,0.2)', padding: '10px 12px', marginBottom: '8px' }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#a78bfa', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <span>✨ Fitas de Borda Recomendadas</span>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {suggestedEdgeBands.map(p => {
+                                                    const currentPriceStr = customPriceInput[p.id] !== undefined ? customPriceInput[p.id] : maskCurrency(p.value);
+                                                    return (
+                                                        <div key={`sug-${p.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                                    {p.photo ? (
+                                                                        <img src={p.photo} alt={p.name} style={{ width: '24px', height: '24px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
+                                                                    ) : (
+                                                                        <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(167,139,250,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                            <Package size={12} color="#a78bfa" />
+                                                                        </div>
+                                                                    )}
+                                                                    <div style={{ fontWeight: '600', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                                </div>
+                                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '32px' }}>
+                                                                    {editingPriceId === p.id ? (
+                                                                        <input 
+                                                                            type="text" 
+                                                                            value={currentPriceStr}
+                                                                            onChange={e => setCustomPriceInput({...customPriceInput, [p.id]: maskCurrency(e.target.value)})}
+                                                                            onBlur={() => setEditingPriceId(null)}
+                                                                            onKeyDown={e => e.key === 'Enter' && setEditingPriceId(null)}
+                                                                            autoFocus
+                                                                            style={{ width: '80px', padding: '2px 4px', fontSize: '0.70rem', marginBottom: 0 }}
+                                                                        />
+                                                                    ) : (
+                                                                        <div 
+                                                                            className="editable-field"
+                                                                            onClick={() => setEditingPriceId(p.id)} 
+                                                                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                                        >
+                                                                            {currentPriceStr}
+                                                                            <Pencil size={8} />
+                                                                        </div>
+                                                                    )}
+                                                                    <span>/ {p.unit}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                                                <input 
+                                                                    type="number" 
+                                                                    min="0.1" 
+                                                                    step="any"
+                                                                    placeholder="Qtd" 
+                                                                    value={quantityInput[p.id] || ''}
+                                                                    onChange={e => setQuantityInput({...quantityInput, [p.id]: e.target.value})}
+                                                                    style={{ width: '50px', padding: '2px 4px', marginBottom: 0, fontSize: '0.75rem', height: '26px' }}
+                                                                />
+                                                                <button onClick={() => handleAddProduct(p)} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', height: '26px', display: 'flex', alignItems: 'center' }}>
+                                                                    <Plus size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {availableProducts.length === 0 ? (
+                                        <p style={{padding: '20px', textAlign: 'center', color:'var(--text-muted)', fontSize:'0.85rem'}}>
+                                            Nenhum produto cadastrado no grupo "{GROUP_SEQUENCE.find(g => g.key === selectedGroup)?.label || selectedGroup}"{search ? ` correspondente a "${search}"` : ''}.
+                                        </p>
+                                    ) : (
+                                        availableProducts.map(p => {
                                 const currentPriceStr = customPriceInput[p.id] !== undefined ? customPriceInput[p.id] : maskCurrency(p.value);
                                 return (
                                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
@@ -926,7 +1195,9 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 </div>
                                 );
                              })
-                            }
+                            )}
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -1007,7 +1278,11 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                 <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem', borderTop: '2px solid var(--border)', paddingTop: '1.5rem' }}>
                     <button 
                         onClick={() => { 
-                            if (validateBudget()) {
+                            const divs = checkDivergences();
+                            if (divs.length > 0) {
+                                setDivergences(divs);
+                                setShowDivergencesModal(true);
+                            } else {
                                 setPrintType('PROPOSAL'); 
                                 setShowPrint(true); 
                             }
@@ -1016,6 +1291,12 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     >
                         Gerar Proposta <LayoutGrid size={18} />
                     </button>
+                    <button 
+                        onClick={() => { setPrintType('PRESENTATION'); setShowPrint(true); }} 
+                        style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        Apresentação <Image size={18} />
+                    </button>
                     <button onClick={() => { setPrintType('MATERIALS'); setShowPrint(true); }} style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         Lista de Materiais <ClipboardList size={18} />
                     </button>
@@ -1023,25 +1304,92 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                 </div>
 
                 {/* PRINT PREVIEW OVERLAY */}
-                {showPrint && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#fff', color: '#000', zIndex: 20000, overflowY: 'auto', padding: '40px' }}>
+                {showPrint && createPortal(
+                    <div className="print-overlay-container" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#fff', color: '#000', zIndex: 20000, overflowY: 'auto', padding: '40px' }}>
                         <style>{`
                             @media print {
+                                #root, .modal-overlay {
+                                    display: none !important;
+                                }
+                                body {
+                                    margin: 0;
+                                    background: white !important;
+                                    overflow: visible !important;
+                                }
+                                .print-overlay-container {
+                                    position: static !important;
+                                    width: 100% !important;
+                                    height: auto !important;
+                                    overflow: visible !important;
+                                    padding: 0 !important;
+                                    background: white !important;
+                                    color: #000 !important;
+                                }
                                 .no-print { display: none !important; }
-                                body { margin: 0; background: white; }
-                                .print-container { padding: 0 !important; width: 100% !important; }
+                                .print-container {
+                                    padding: 0 !important;
+                                    width: 100% !important;
+                                    max-width: 100% !important;
+                                    margin: 0 !important;
+                                }
+                                ${printType === 'PRESENTATION' ? `
+                                @page {
+                                    size: landscape;
+                                    margin: 0;
+                                }
+                                body {
+                                    -webkit-print-color-adjust: exact;
+                                    print-color-adjust: exact;
+                                }
+                                .presentation-slide {
+                                    height: 100vh !important;
+                                    max-height: 100vh !important;
+                                    page-break-after: always !important;
+                                    break-after: page !important;
+                                    box-sizing: border-box !important;
+                                    margin: 0 !important;
+                                    border: none !important;
+                                    box-shadow: none !important;
+                                    background: #ffffff !important;
+                                }
+                                .presentation-slide-body {
+                                    display: flex !important;
+                                    flex-direction: row !important;
+                                    gap: 40px !important;
+                                    flex: 1 !important;
+                                    margin: 20px 0 !important;
+                                    min-height: 0 !important;
+                                }
+                                .presentation-slide-image-box {
+                                    height: calc(100vh - 170px) !important;
+                                    max-height: calc(100vh - 170px) !important;
+                                    display: flex !important;
+                                    justify-content: center !important;
+                                    align-items: center !important;
+                                    overflow: hidden !important;
+                                }
+                                .presentation-slide-image {
+                                    max-width: 100% !important;
+                                    max-height: 100% !important;
+                                    width: auto !important;
+                                    height: auto !important;
+                                    object-fit: contain !important;
+                                }
+                                ` : ''}
                             }
                         `}</style>
                         
                         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                             <div style={{ fontWeight: 'bold', color: '#1e293b' }}>Visualização de Impressão</div>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <button onClick={handlePrint} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Imprimir Agora</button>
+                                <button onClick={handlePrint} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                    {printType === 'PRESENTATION' ? 'Salvar Apresentação (PDF)' : 'Imprimir Agora'}
+                                </button>
                                 <button onClick={() => autoShowPrint ? onClose() : setShowPrint(false)} style={{ background: '#64748b', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Fechar</button>
                             </div>
                         </div>
 
-                        <div className="print-container" style={{ maxWidth: '850px', margin: '0 auto', fontFamily: "'Inter', 'Segoe UI', sans-serif", color: '#1e293b' }}>
+                        <div className="print-container" style={{ maxWidth: printType === 'PRESENTATION' ? '100%' : '850px', margin: '0 auto', fontFamily: "'Inter', 'Segoe UI', sans-serif", color: '#1e293b' }}>
                             {printType === 'MATERIALS' ? (
                                 <>
                                     {/* HEADER */}
@@ -1053,7 +1401,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <div style={{ fontSize: '24px', fontWeight: '900', color: '#6366f1', letterSpacing: '-1px' }}>ERP MÓVEIS</div>
                                             )}
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
-                                                <User size={14} /> <strong>Responsável:</strong> {user?.name || 'Não identificado'}
+                                                <User size={14} /> <strong>Responsável:</strong> {user?.name || 'Não identificado'}{user?.phone ? ` - ${maskPhone(user.phone)}` : ''}
                                             </div>
                                         </div>
                                         
@@ -1168,6 +1516,230 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                         <span>Gerado em {new Date().toLocaleString('pt-BR')}</span>
                                     </div>
                                 </>
+                            ) : printType === 'PRESENTATION' ? (
+                                <>
+                                    {/* SLIDE 1: COVER PAGE */}
+                                    <div className="presentation-slide" style={{
+                                        height: '100vh',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        padding: '60px 80px',
+                                        boxSizing: 'border-box',
+                                        pageBreakAfter: 'always',
+                                        background: '#fafbfc',
+                                        fontFamily: "'Inter', sans-serif",
+                                        position: 'relative',
+                                        border: '1px solid #e2e8f0',
+                                        gap: '60px'
+                                    }}>
+                                        {/* Thin Elegant Top Accent Line */}
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            height: '4px',
+                                            background: '#10b981'
+                                        }} />
+                                        
+                                        {/* Cover Header (Logo) */}
+                                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '60px' }}>
+                                            {liveSettings?.tenant?.logo_url || user?.logo_url ? (
+                                                <img 
+                                                    src={liveSettings?.tenant?.logo_url || user?.logo_url} 
+                                                    alt="Logo" 
+                                                    style={{ maxHeight: '112px', maxWidth: '336px', objectFit: 'contain' }} 
+                                                />
+                                            ) : (
+                                                <div style={{ fontSize: '30px', fontWeight: '300', color: '#10b981', letterSpacing: '4px', textTransform: 'uppercase' }}>
+                                                    {liveSettings?.tenant?.name || 'ERP MÓVEIS'}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Cover Body (Client Name & Subtitles) */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '30px', fontWeight: '800', color: '#10b981', letterSpacing: '3px', textTransform: 'uppercase' }}>
+                                                APRESENTAÇÃO DE PROJETO
+                                            </div>
+                                            <h1 style={{ fontSize: '50px', fontWeight: '300', margin: 0, color: '#1e293b', lineHeight: '1.2' }}>
+                                                {proposal.partner_name}
+                                            </h1>
+                                            <div style={{ height: '1px', width: '120px', background: '#cbd5e1', margin: '15px 0' }} />
+                                            <div style={{ fontSize: '14px', color: '#64748b', fontWeight: '500' }}>
+                                                {(() => {
+                                                    const now = new Date();
+                                                    const dStr = now.toLocaleDateString('pt-BR');
+                                                    const tStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                                                    return `${dStr} | ${tStr}`;
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* SLIDES 2 to N: ENVIRONMENT IMAGES */}
+                                    {(() => {
+                                        const isImageAtt = (a) =>
+                                            (a.type && a.type.includes('image')) ||
+                                            /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(a.url || a.name || '');
+
+                                        const allImageSlides = [];
+                                        budgetItems.forEach(item => {
+                                            const atts = Array.isArray(item.attachments) ? item.attachments : [];
+                                            const images = atts.filter(isImageAtt);
+                                            images.forEach((img, idx) => {
+                                                allImageSlides.push({
+                                                    item,
+                                                    img,
+                                                    index: idx + 1,
+                                                    total: images.length
+                                                });
+                                            });
+                                        });
+
+                                        if (allImageSlides.length === 0) {
+                                            return (
+                                                <div style={{
+                                                    height: '100vh',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    justifyContent: 'center',
+                                                    alignItems: 'center',
+                                                    padding: '60px',
+                                                    boxSizing: 'border-box',
+                                                    background: '#ffffff',
+                                                    fontFamily: "'Inter', sans-serif",
+                                                    border: '1px solid #e2e8f0',
+                                                    pageBreakAfter: 'always'
+                                                }}>
+                                                    <span style={{ fontSize: '48px', marginBottom: '20px' }}>🖼️</span>
+                                                    <h3 style={{ margin: '0 0 10px', color: '#475569' }}>Sem imagens anexadas</h3>
+                                                    <p style={{ color: '#94a3b8', fontSize: '14px', textAlign: 'center' }}>
+                                                        Para gerar a apresentação, adicione fotos ou projetos aos ambientes no orçamento.
+                                                    </p>
+                                                </div>
+                                            );
+                                        }
+
+                                        return allImageSlides.map(({ item, img, index, total }, idx) => (
+                                            <div key={`${item.id}-img-${idx}`} className="presentation-slide" style={{
+                                                height: '100vh',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                justifyContent: 'space-between',
+                                                padding: '40px 60px',
+                                                boxSizing: 'border-box',
+                                                pageBreakAfter: 'always',
+                                                background: '#ffffff',
+                                                fontFamily: "'Inter', sans-serif",
+                                                border: '1px solid #e2e8f0'
+                                            }}>
+                                                {/* Slide Body: info on left, image on right */}
+                                                <div className="presentation-slide-body" style={{ display: 'flex', gap: '40px', flex: 1, margin: '20px 0', minHeight: 0, position: 'relative' }}>
+                                                    {/* Left Column: Info */}
+                                                    <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: '15px', textAlign: 'left', borderRight: '1px solid #f1f5f9', paddingRight: '20px', paddingTop: '10px' }}>
+                                                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#10b981', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                                                            {item.name}
+                                                        </div>
+                                                        {item.description && (
+                                                            <div style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                                                                {item.description}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Right Column: Image Box */}
+                                                    <div className="presentation-slide-image-box" style={{
+                                                        flex: 1,
+                                                        display: 'flex',
+                                                        justifyContent: 'center',
+                                                        alignItems: 'center',
+                                                        overflow: 'hidden',
+                                                        position: 'relative'
+                                                    }}>
+                                                        <img 
+                                                            className="presentation-slide-image"
+                                                            src={img.url} 
+                                                            alt={`${item.name} - ${index}`} 
+                                                            style={{
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                maxHeight: 'calc(100vh - 170px)',
+                                                                objectFit: 'contain',
+                                                                borderRadius: '6px',
+                                                                background: '#f8fafc',
+                                                                border: '1px solid #f1f5f9'
+                                                            }} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Slide Footer */}
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '12px', fontSize: '11px', color: '#94a3b8' }}>
+                                                    <span>
+                                                        Página {idx + 2}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ));
+                                    })()}
+
+                                    {/* FINAL SLIDE: THANK YOU & CONTACTS */}
+                                    <div className="presentation-slide" style={{
+                                        height: '100vh',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        padding: '60px 80px',
+                                        boxSizing: 'border-box',
+                                        background: '#fafbfc',
+                                        fontFamily: "'Inter', sans-serif",
+                                        position: 'relative',
+                                        border: '1px solid #e2e8f0',
+                                        gap: '40px'
+                                    }}>
+                                        {/* Middle Thank You */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center', textAlign: 'center' }}>
+                                            <h1 style={{ fontSize: '36px', fontWeight: '300', color: '#1e293b', margin: 0, letterSpacing: '4px', textTransform: 'uppercase' }}>
+                                                Agradecemos a Parceria!
+                                            </h1>
+                                            <div style={{ height: '2px', width: '60px', background: '#10b981', margin: '5px 0' }} />
+                                            <p style={{ fontSize: '16px', color: '#64748b', fontWeight: '400', margin: 0, maxWidth: '500px', lineHeight: '1.5' }}>
+                                                Estamos comprometidos em transformar seu espaço com o máximo de excelência, sofisticação e cuidado.
+                                            </p>
+                                        </div>
+
+                                        {/* Center-aligned Contacts - 2 lines below the thank you details */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '30px', maxWidth: '600px', width: '100%' }}>
+                                            {/* Responsible contact centered */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '10px', fontWeight: '800', color: '#94a3b8', letterSpacing: '1px', textTransform: 'uppercase' }}>CONTATO DO RESPONSÁVEL</div>
+                                                <div style={{ fontSize: '15px', fontWeight: '700', color: '#334155' }}>{user?.name || 'Não identificado'}</div>
+                                                <div style={{ fontSize: '13px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                    {user?.phone ? (
+                                                        <div>📞 {maskPhone(user.phone)}</div>
+                                                    ) : liveSettings?.tenant?.phone ? (
+                                                        <div>📞 {maskPhone(liveSettings.tenant.phone)}</div>
+                                                    ) : (
+                                                        <div>Contato não informado</div>
+                                                    )}
+                                                    <div>✉️ {user?.email}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Company site and Instagram below */}
+                                            {(liveSettings?.tenant?.website || liveSettings?.tenant?.instagram) && (
+                                                <div style={{ display: 'flex', gap: '20px', fontSize: '13px', color: '#64748b', borderTop: '1px dashed #cbd5e1', paddingTop: '15px', width: '100%', justifyContent: 'center' }}>
+                                                    {liveSettings?.tenant?.website && <div>🌐 {liveSettings.tenant.website}</div>}
+                                                    {liveSettings?.tenant?.instagram && <div>📸 {liveSettings.tenant.instagram}</div>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
                             ) : (
                                 <>
                                     {/* HEADER */}
@@ -1179,7 +1751,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <div style={{ fontSize: '24px', fontWeight: '900', color: '#6366f1', letterSpacing: '-1px' }}>ERP MÓVEIS</div>
                                             )}
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
-                                                <User size={14} /> <strong>Responsável:</strong> {user?.name || 'Não identificado'}
+                                                <User size={14} /> <strong>Responsável:</strong> {user?.name || 'Não identificado'}{user?.phone ? ` - ${maskPhone(user.phone)}` : ''}
                                             </div>
                                         </div>
                                         
@@ -1221,39 +1793,30 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                 <div style={{ fontWeight: '800', fontSize: '15px', color: '#1e293b', marginBottom: '8px', textTransform: 'uppercase' }}>{item.name}</div>
                                                                 <div style={{ color: '#475569', fontSize: '13px', lineHeight: '1.5', whiteSpace: 'pre-wrap', marginBottom: '8px' }}>
                                                                     {item.description || 'Nenhuma especificação informada.'}
-                                                                </div>
-                                                                
-                                                                {/* Anexos do Item (Imagens e Arquivos) */}
-                                                                {item.attachments && item.attachments.length > 0 && (
-                                                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-                                                                        {item.attachments.map((att, iidx) => {
-                                                                            const isImage = att.type?.includes('image') || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.url);
-                                                                            
-                                                                            return (
-                                                                                <div 
-                                                                                    key={iidx} 
-                                                                                    onClick={() => isImage ? setFullscreenImage(att.url) : window.open(att.url, '_blank')}
-                                                                                    style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}
-                                                                                    title={att.name}
-                                                                                >
-                                                                                    {isImage ? (
-                                                                                        <img 
-                                                                                            src={att.url} 
-                                                                                            alt="Anexo" 
-                                                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                                                                            onError={(e) => {
-                                                                                                e.target.style.display = 'none';
-                                                                                                e.target.parentElement.innerHTML = '<span style="font-size: 8px; color: #ef4444">ERR</span>';
-                                                                                            }}
-                                                                                        />
-                                                                                    ) : (
+                                                                    {/* Anexos do Item (Apenas Documentos/Arquivos - Sem Fotos) */}
+                                                                    {(() => {
+                                                                        const nonImageAtts = (item.attachments || []).filter(att => {
+                                                                            const isImage = att.type?.includes('image') || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.url || '');
+                                                                            return !isImage;
+                                                                        });
+                                                                        if (nonImageAtts.length === 0) return null;
+
+                                                                        return (
+                                                                            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                                                                                {nonImageAtts.map((att, iidx) => (
+                                                                                    <div 
+                                                                                        key={iidx} 
+                                                                                        onClick={() => window.open(att.url, '_blank')}
+                                                                                        style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}
+                                                                                        title={att.name}
+                                                                                    >
                                                                                         <Paperclip size={16} color="var(--primary)" />
-                                                                                    )}
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                )}
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                </div>
                                                             </td>
                                                             <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', verticalAlign: 'top', fontSize: '16px', color: '#1e293b' }}>
                                                                 {maskCurrency(itemPrice)}
@@ -1368,14 +1931,19 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             <div style={{ textAlign: 'right', borderRight: '1px solid #cbd5e1', paddingRight: '30px' }}>
                                                 <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Prazos de Produção</div>
                                                 <div style={{ display: 'flex', gap: '15px', marginTop: '4px' }}>
-                                                    <div style={{ fontSize: '14px', color: '#1e293b' }}>Fabricação: <strong>{
-                                                        budgetItems.reduce((acc, item) => acc + item.products.reduce((acc2, p) => {
-                                                            const unit = p.product.unit?.toUpperCase();
-                                                            if (unit === 'DF') return acc2 + p.quantity;
-                                                            if (unit === 'DIA' && !p.product.name.toLowerCase().includes('montagem')) return acc2 + p.quantity;
-                                                            return acc2;
-                                                        }, 0), 0)
-                                                    } dias</strong></div>
+                                                    <div style={{ fontSize: '14px', color: '#1e293b' }}>
+                                                         Fabricação: <strong>{
+                                                             budgetItems.reduce((acc, item) => acc + item.products.reduce((acc2, p) => {
+                                                                 const unit = p.product.unit?.toUpperCase();
+                                                                 if (unit === 'DF') return acc2 + p.quantity;
+                                                                 if (unit === 'DIA' && !p.product.name.toLowerCase().includes('montagem')) return acc2 + p.quantity;
+                                                                 return acc2;
+                                                             }, 0), 0)
+                                                         } dias</strong>
+                                                         <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal', marginTop: '4px', fontStyle: 'italic' }}>
+                                                             Obs: Entrega condicionada ao pagamento e fluxo de produção
+                                                         </div>
+                                                    </div>
                                                     <div style={{ fontSize: '14px', color: '#1e293b' }}>Instalação: <strong>{
                                                         budgetItems.reduce((acc, item) => acc + item.products.reduce((acc2, p) => {
                                                             const unit = p.product.unit?.toUpperCase();
@@ -1408,7 +1976,8 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 </>
                             )}
                         </div>
-                    </div>
+                    </div>,
+                    document.body
                 )}
 
                 {/* Overlay de Imagem em Tela Cheia */}

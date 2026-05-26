@@ -67,9 +67,24 @@ const ManufacturerModal = ({ manufacturer, onClose, onSave }) => {
 };
 
 // ── Modal de Produto ──────────────────────────────────────────────────────────
+// ── Função Auxiliar de Auto-Previsão de Grupo ────────────────────────────────
+const predictGroup = (name, unit) => {
+    if (!name) return 'Outros';
+    const n = name.toUpperCase();
+    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Servico';
+    if (n.startsWith('MDF') || n.includes('MDF')) return 'Mdf';
+    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fita';
+    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Ferragem';
+    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragem';
+    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Quimicos';
+    if (n.includes('VERNIZ') || n.includes('PINTURA') || n.includes('LACA') || n.includes('ACABAMENTO')) return 'Acabamento';
+    return 'Outros';
+};
+
+// ── Modal de Produto ──────────────────────────────────────────────────────────
 const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
     const [form, setForm] = useState({ 
-        name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1 
+        name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1, group_name: 'Outros' 
     });
     const [displayValue, setDisplayValue] = useState('0,00');
     const [uploading, setUploading] = useState(false);
@@ -83,7 +98,11 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
 
     useEffect(() => {
         if (product) {
-            setForm({...product, manufacturer_id: product.manufacturer_id || ''});
+            setForm({
+                ...product, 
+                manufacturer_id: product.manufacturer_id || '',
+                group_name: product.group_name || 'Outros'
+            });
             setDisplayValue(maskCurrency(product.value));
         }
     }, [product]);
@@ -93,6 +112,16 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
         const formatted = maskCurrency(val);
         setDisplayValue(formatted);
         setForm({ ...form, value: parseCurrency(formatted) });
+    };
+
+    const handleNameChange = (nameVal) => {
+        const predicted = predictGroup(nameVal, form.unit);
+        setForm(f => ({ ...f, name: nameVal, group_name: predicted }));
+    };
+
+    const handleUnitChange = (unitVal) => {
+        const predicted = predictGroup(form.name, unitVal);
+        setForm(f => ({ ...f, unit: unitVal, group_name: predicted }));
     };
 
     const handleFileUpload = async (e) => {
@@ -135,7 +164,7 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                     <button onClick={onClose} className="btn-icon"><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSubmit}>
-                    <div style={{ display: 'flex', gap: '20px', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '20px', marginBottom: '1.25rem' }}>
                         <div 
                             onClick={() => fileInputRef.current.click()}
                             style={{ 
@@ -162,24 +191,33 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                         </div>
                         <div style={{ flex: 1 }}>
                             <label>Nome *</label>
-                            <input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                            <input required value={form.name} onChange={e => handleNameChange(e.target.value)} />
                             
                             <label>Unidade</label>
-                            <select value={form.unit} onChange={e => setForm({...form, unit: e.target.value})}>
+                            <select value={form.unit} onChange={e => handleUnitChange(e.target.value)}>
                                 {Object.entries(unitDomain).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                             </select>
                         </div>
                     </div>
                     
+                    <div style={{ marginBottom: '1rem' }}>
+                        <label>Valor Unitário (R$)</label>
+                        <input 
+                            type="text" 
+                            value={displayValue} 
+                            onChange={handleValueChange} 
+                            style={{ textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}
+                        />
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div>
-                            <label>Valor Unitário (R$)</label>
-                            <input 
-                                type="text" 
-                                value={displayValue} 
-                                onChange={handleValueChange} 
-                                style={{ textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}
-                            />
+                            <label>Grupo / Categoria *</label>
+                            <select value={form.group_name} onChange={e => setForm({...form, group_name: e.target.value})}>
+                                {['Mdf', 'Fita', 'Ferragem', 'Quimicos', 'Acabamento', 'Servico', 'Outros'].map(g => (
+                                    <option key={g} value={g}>{g}</option>
+                                ))}
+                            </select>
                         </div>
                         <div>
                             <label>Fabricante</label>
@@ -306,9 +344,14 @@ const Products = () => {
                                         )}
                                         <div>
                                             <h4 style={{ margin: 0 }}>{p.name}</h4>
-                                            <span style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', background: p.status ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.status ? '#10b981' : '#ef4444', display: 'inline-block', marginTop: '4px', fontWeight: 'bold' }}>
-                                                {p.status ? 'ATIVADO' : 'DESATIVADO'}
-                                            </span>
+                                            <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', background: p.status ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.status ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                                                    {p.status ? 'ATIVADO' : 'DESATIVADO'}
+                                                </span>
+                                                <span style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(99,102,241,0.15)', color: 'var(--primary)', fontWeight: 'bold' }}>
+                                                    📁 {p.group_name || 'Outros'}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '4px' }}>
