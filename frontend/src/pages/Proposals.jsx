@@ -6,6 +6,7 @@ import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2,
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 import { PartnerModal } from './Partners';
+import BuildPresentationModal from './BuildPresentationModal';
 
 const maskCurrency = (v) => {
     if (!v) return 'R$ 0,00';
@@ -1336,6 +1337,7 @@ const Proposals = ({ user }) => {
     const [eventModalData, setEventModalData] = useState({ show: false, proposal: null });
     const [completionModalData, setCompletionModalData] = useState({ show: false, proposal: null });
     const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
+    const [presentationModalData, setPresentationModalData] = useState({ show: false, proposal: null });
     const [attachmentsModalData, setAttachmentsModalData] = useState({ show: false, proposal: null });
     const [activeStatusTab, setActiveStatusTab] = useState('ABERTO');
     const [globalPartnerModalOpen, setGlobalPartnerModalOpen] = useState(false);
@@ -1502,7 +1504,7 @@ const Proposals = ({ user }) => {
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                         <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
-                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p, autoShowPrint: 'PRESENTATION' })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
+                                                        <button onClick={() => setPresentationModalData({ show: true, proposal: p })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
                                                         <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
                                                         {p.status === 'ABERTO' && (
                                                             <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
@@ -1555,6 +1557,14 @@ const Proposals = ({ user }) => {
                     }
                 }}
                 onSave={() => { setBudgetModalData({ show: false, proposal: null }); fetchProposals(); }}
+            />}
+            {presentationModalData.show && <BuildPresentationModal
+                proposal={presentationModalData.proposal}
+                user={user}
+                onClose={() => {
+                    setPresentationModalData({ show: false, proposal: null });
+                    fetchProposals();
+                }}
             />}
             {globalPartnerModalOpen && (
                 <PartnerModal

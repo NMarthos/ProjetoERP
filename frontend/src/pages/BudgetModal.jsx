@@ -3,6 +3,7 @@ import api from '../services/api';
 import { X, Plus, Search, Trash2, PackagePlus, PlusCircle, Pencil, FileText, Image, Paperclip, LayoutGrid, ClipboardList, User, Loader2, Upload, Package, Layers, Scissors, Wrench, Droplet, Paintbrush, HelpCircle, Briefcase, AlertCircle } from 'lucide-react';
 import { maskCurrency, parseCurrency, maskPhone } from '../utils/masks';
 import { createPortal } from 'react-dom';
+import BuildPresentationModal from './BuildPresentationModal';
 
 // ── Função Auxiliar de Auto-Previsão de Grupo ────────────────────────────────
 const predictGroup = (name, unit) => {
@@ -63,6 +64,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const newProductFileRef = useRef(null);
     const [showPrint, setShowPrint] = useState(false);
     const [printType, setPrintType] = useState('PROPOSAL'); // 'PROPOSAL' or 'MATERIALS'
+    const [showPresentationModal, setShowPresentationModal] = useState(false);
 
     // Attachments
     const [globalAttachments, setGlobalAttachments] = useState([]);
@@ -89,6 +91,29 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
             setProducts(res.data.filter(p => p.status === 1));
         } catch { alert('Erro ao buscar produtos'); }
         finally { setLoading(false); }
+    };
+
+    const loadProposalData = async () => {
+        try {
+            const res = await api.get(`/proposals/${proposal.id}`);
+            const freshProposal = res.data;
+            if (freshProposal.budget_data) {
+                const parsed = JSON.parse(freshProposal.budget_data);
+                if (Array.isArray(parsed)) {
+                    setBudgetItems(parsed);
+                    if (parsed.length > 0) setActiveItemId(parsed[0].id);
+                }
+            }
+        } catch (e) {
+            console.error("Erro ao carregar dados frescos da proposta", e);
+            if (proposal.budget_data) {
+                try {
+                    const parsed = JSON.parse(proposal.budget_data);
+                    setBudgetItems(parsed);
+                    if (parsed.length > 0) setActiveItemId(parsed[0].id);
+                } catch(err2) {}
+            }
+        }
     };
 
     useEffect(() => {
@@ -122,39 +147,17 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                 console.warn('[BudgetModal] Falha ao buscar settings, usando parâmetros do prop.');
             });
 
-        const loadProposalData = async () => {
-            try {
-                const res = await api.get(`/proposals/${proposal.id}`);
-                const freshProposal = res.data;
-                if (freshProposal.budget_data) {
-                    const parsed = JSON.parse(freshProposal.budget_data);
-                    if (Array.isArray(parsed)) {
-                        setBudgetItems(parsed);
-                        if (parsed.length > 0) setActiveItemId(parsed[0].id);
-                    }
-                }
-                // NOTE: pricing_snapshot from DB is intentionally NOT applied here,
-                // as we always want fresh params fetched above to take precedence.
-            } catch (e) {
-                console.error("Erro ao carregar dados frescos da proposta", e);
-                // Fallback to prop if API fails
-                if (proposal.budget_data) {
-                    try {
-                        const parsed = JSON.parse(proposal.budget_data);
-                        setBudgetItems(parsed);
-                        if (parsed.length > 0) setActiveItemId(parsed[0].id);
-                    } catch(err2) {}
-                }
-            }
-        };
-
         loadProposalData();
         fetchGlobalAttachments();
 
         // If opened from Proposal Completion Modal, jump straight to print preview
         if (autoShowPrint) {
-            setPrintType(typeof autoShowPrint === 'string' ? autoShowPrint : 'PROPOSAL');
-            setShowPrint(true);
+            if (autoShowPrint === 'PRESENTATION') {
+                setShowPresentationModal(true);
+            } else {
+                setPrintType(typeof autoShowPrint === 'string' ? autoShowPrint : 'PROPOSAL');
+                setShowPrint(true);
+            }
         }
     }, [proposal.id]);
 
@@ -185,7 +188,15 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     };
 
     const handleSaveItemInfo = async () => {
-        if (!newItemName.trim()) return alert('Informe o nome do item.');
+        if (!newItemName.trim()) {
+            setDivergences([{
+                itemName: 'Novo Item',
+                type: 'Campos Obrigatórios',
+                message: 'Informe o nome do item antes de salvar.'
+            }]);
+            setShowDivergencesModal(true);
+            return;
+        }
         
         let updatedItems;
         if (editingItemId) {
@@ -291,7 +302,15 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const handleAddProduct = (product) => {
         if (!activeItem) return;
         const qty = parseFloat(quantityInput[product.id] || '1');
-        if (isNaN(qty) || qty <= 0) return alert('Quantidade inválida');
+        if (isNaN(qty) || qty <= 0) {
+            setDivergences([{
+                itemName: activeItem.name || 'Orçamento',
+                type: 'Quantidade Inválida',
+                message: 'A quantidade informada para o produto é inválida ou menor/igual a zero.'
+            }]);
+            setShowDivergencesModal(true);
+            return;
+        }
 
         let unitValue = product.value || 0;
         if (customPriceInput[product.id] !== undefined) {
@@ -299,7 +318,12 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         }
 
         if (unitValue <= 0) {
-            alert('Não é permitido adicionar um produto que não tenha preço cadastrado.');
+            setDivergences([{
+                itemName: activeItem.name || 'Orçamento',
+                type: 'Preço Inválido',
+                message: 'Não é permitido adicionar um produto que não tenha preço cadastrado.'
+            }]);
+            setShowDivergencesModal(true);
             return;
         }
 
@@ -434,6 +458,18 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     message: 'Falta custo de serviço. Este item não possui nenhum serviço/diária adicionado.'
                 });
             }
+
+            // 2. Check Product Prices
+            item.products.forEach(sp => {
+                const val = sp.product.value || 0;
+                if (val <= 0) {
+                    list.push({
+                        itemName: item.name,
+                        type: 'Preço Inválido',
+                        message: `O produto "${sp.product.name}" não possui preço cadastrado.`
+                    });
+                }
+            });
         }
         return list;
     };
@@ -748,7 +784,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
                 {/* DIVERGENCES WARNING MODAL */}
                 {showDivergencesModal && (
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '24px' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300000, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '24px' }}>
                         <div style={{ background: '#0f172a', border: '2.5px solid #ef4444', padding: '2rem', borderRadius: '16px', width: '650px', maxWidth: '95%', boxShadow: '0 0 50px rgba(239,68,68,0.2)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
                                 <AlertCircle size={32} color="#ef4444" />
@@ -796,8 +832,8 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     <div>
                         <h3 style={{ fontSize: '1.4rem', fontWeight: '700', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
                             Orçamento
-                            <button onClick={handleOpenCreateModal} title="Adicionar Item" style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-                                <PackagePlus size={16} /> Novo Item
+                            <button onClick={handleOpenCreateModal} title="Adicionar Item/Ambiente" style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', marginLeft: '50px' }}>
+                                <PackagePlus size={16} /> Novo Item/Ambiente
                             </button>
                         </h3>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>Proposta #{proposal.id} - {proposal.partner_name}</p>
@@ -1292,7 +1328,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                         Gerar Proposta <LayoutGrid size={18} />
                     </button>
                     <button 
-                        onClick={() => { setPrintType('PRESENTATION'); setShowPrint(true); }} 
+                        onClick={() => setShowPresentationModal(true)} 
                         style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                         Apresentação <Image size={18} />
@@ -1972,6 +2008,17 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                         <div style={{ marginTop: '40px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
                                             Documento gerado eletronicamente em {new Date().toLocaleString('pt-BR')} por {user?.name}.
                                         </div>
+
+                                        {/* Overlay de Imagem em Tela Cheia */}
+                                        {fullscreenImage && (
+                                            <div 
+                                                onClick={() => setFullscreenImage(null)}
+                                                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: '2rem' }}
+                                            >
+                                                <img src={fullscreenImage} alt="Fullscreen" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 0 50px rgba(0,0,0,0.5)' }} />
+                                                <button style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}><X size={24} /></button>
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -1979,16 +2026,15 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     </div>,
                     document.body
                 )}
-
-                {/* Overlay de Imagem em Tela Cheia */}
-                {fullscreenImage && (
-                    <div 
-                        onClick={() => setFullscreenImage(null)}
-                        style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: '2rem' }}
-                    >
-                        <img src={fullscreenImage} alt="Fullscreen" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 0 50px rgba(0,0,0,0.5)' }} />
-                        <button style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}><X size={24} /></button>
-                    </div>
+                {showPresentationModal && (
+                    <BuildPresentationModal
+                        proposal={proposal}
+                        user={user}
+                        onClose={() => {
+                            setShowPresentationModal(false);
+                            loadProposalData();
+                        }}
+                    />
                 )}
             </div>
         </div>,
