@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import api from '../services/api';
 import { 
     X, ChevronUp, ChevronDown, Plus, Trash2, Image, Printer, Loader2, 
-    Paperclip, Settings, Eye, Check, AlertCircle, Upload, EyeOff, LayoutGrid, FileText 
+    Paperclip, Settings, Eye, Check, AlertCircle, Upload, EyeOff, LayoutGrid, FileText, Share2, Copy, History 
 } from 'lucide-react';
 import { maskPhone } from '../utils/masks';
 
@@ -42,6 +42,12 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
     const [newItemDescription, setNewItemDescription] = useState('');
     const [newItemAttachments, setNewItemAttachments] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
+
+    // Publish state
+    const [publishData, setPublishData] = useState(null);
+    const [publishHistory, setPublishHistory] = useState([]);
+    const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
+    const [isPublishing, setIsPublishing] = useState(false);
 
     useEffect(() => {
         if (!proposal?.id) return;
@@ -85,6 +91,32 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
 
         loadProposal();
     }, [proposal]);
+
+    useEffect(() => {
+        if (items.length > 0 && items.some(item => typeof item.includeInPresentation === 'undefined')) {
+            const initItems = items.map(item => {
+                if (typeof item.includeInPresentation === 'undefined') {
+                    return { ...item, includeInPresentation: true };
+                }
+                return item;
+            });
+            setItems(initItems);
+        }
+    }, [items, setItems]);
+
+    useEffect(() => {
+        const fetchHistory = async () => {
+            try {
+                const response = await api.get(`/proposals/${proposal.id}/events`);
+                const data = response.data;
+                const pubs = data.filter(e => e.type === 'Publicação');
+                setPublishHistory(pubs);
+            } catch (err) {
+                console.error("Erro ao buscar histórico de publicações:", err);
+            }
+        };
+        if (proposal?.id) fetchHistory();
+    }, [proposal, publishData]);
 
     const saveBudgetData = async (updatedItems) => {
         setSaving(true);
@@ -410,6 +442,29 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
         document.title = oldTitle;
     };
 
+    const handlePublish = async () => {
+        setIsPublishing(true);
+        try {
+            const res = await api.post(`/proposals/${proposal.id}/publish`);
+            setPublishData({
+                token: res.data.token,
+                link: window.location.origin + res.data.link
+            });
+        } catch (err) {
+            console.error('Erro ao publicar:', err);
+            alert('Falha ao gerar o link de apresentação.');
+        } finally {
+            setIsPublishing(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (publishData?.link) {
+            navigator.clipboard.writeText(`Acesse a apresentação do seu projeto aqui: ${publishData.link} \nSeu Token de Acesso: ${publishData.token}`);
+            alert('Link e token copiados para a área de transferência!');
+        }
+    };
+
     if (loading) {
         return createPortal(
             <div className="modal-overlay" style={{ background: 'rgba(15, 23, 42, 0.85)' }}>
@@ -465,8 +520,143 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                             Configure a capa, organize os slides dos ambientes e prepare o PDF para o cliente ({proposal.partner_name})
                         </p>
                     </div>
-                    <button onClick={onClose} className="btn-icon"><X size={20} /></button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button 
+                            onClick={handlePublish}
+                            disabled={isPublishing}
+                            className="btn-premium"
+                            style={{ 
+                                display: 'flex', alignItems: 'center', gap: '8px', 
+                                padding: '8px 16px', borderRadius: '8px',
+                                background: 'linear-gradient(135deg, var(--primary), var(--primary-hover))',
+                                color: 'white', border: 'none', cursor: 'pointer', fontWeight: '700'
+                            }}
+                        >
+                            {isPublishing ? <Loader2 size={18} className="spin" /> : <Share2 size={18} />}
+                            Publicar Web
+                        </button>
+                        <button onClick={onClose} className="btn-icon"><X size={20} /></button>
+                    </div>
                 </div>
+
+                {/* Publish Info Alert */}
+                {publishData && (
+                    <div style={{ 
+                        background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', 
+                        borderRadius: '12px', padding: '16px', marginBottom: '20px',
+                        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '20px'
+                    }}>
+                        <div>
+                            <h4 style={{ color: '#10b981', fontSize: '1rem', fontWeight: '700', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Check size={18} /> Apresentação Publicada com Sucesso!
+                            </h4>
+                            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', marginBottom: '4px' }}>
+                                O link exclusivo e o token de acesso foram gerados. Eles expiram em 8 horas.
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '12px', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: '8px' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', display: 'block', textTransform: 'uppercase', letterSpacing: '1px' }}>Link</span>
+                                    <a href={publishData.link} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: '600', textDecoration: 'none' }}>
+                                        {publishData.link}
+                                    </a>
+                                </div>
+                                <div style={{ width: '1px', height: '30px', background: 'rgba(255,255,255,0.1)' }}></div>
+                                <div>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', display: 'block', textTransform: 'uppercase', letterSpacing: '1px' }}>Token</span>
+                                    <span style={{ color: 'white', fontWeight: '800', fontSize: '1.2rem', letterSpacing: '2px' }}>{publishData.token}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleCopyLink}
+                            style={{ 
+                                background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none', 
+                                padding: '10px 16px', borderRadius: '8px', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', transition: 'all 0.2s'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        >
+                            <Copy size={16} /> Copiar para Cliente
+                        </button>
+                    </div>
+                )}
+
+                {/* Publish History Box */}
+                {publishHistory.length > 0 && !publishData && (
+                    <div style={{ 
+                        background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.1)', 
+                        borderRadius: '12px', padding: '16px', marginBottom: '20px'
+                    }}>
+                        <div 
+                            onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                            style={{ 
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                                cursor: 'pointer', userSelect: 'none'
+                            }}
+                        >
+                            <h4 style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                                <History size={16} /> Histórico de Publicações ({publishHistory.length})
+                            </h4>
+                            <div style={{ color: 'rgba(255,255,255,0.6)' }}>
+                                {isHistoryCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                            </div>
+                        </div>
+
+                        {!isHistoryCollapsed && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '180px', overflowY: 'auto', marginTop: '16px' }}>
+                                {[...publishHistory].reverse().map((pub, idx) => {
+                                    const tokenMatch = pub.description.match(/Token de Acesso:\s*([A-Z0-9]+)/);
+                                    const pubToken = tokenMatch ? tokenMatch[1] : '---';
+                                    
+                                    const expireMatch = pub.description.match(/Expira em:\s*(.+)/);
+                                    const expireText = expireMatch ? expireMatch[1] : null;
+
+                                    const linkMatch = pub.description.match(/Link:\s*([^\s]+)/);
+                                    const linkHref = linkMatch ? linkMatch[1] : `/presentation/view/${pub.proposal_id}`;
+                                    
+                                    const isActive = (proposal.presentation_token && pubToken === proposal.presentation_token);
+
+                                    return (
+                                        <div key={pub.id || idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: isActive ? 'rgba(99, 102, 241, 0.15)' : 'rgba(0,0,0,0.2)', borderRadius: '6px', border: isActive ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    {pub.event_date} às {pub.event_time}
+                                                    {isActive ? (
+                                                        <span style={{ fontSize: '0.65rem', background: 'var(--primary)', color: 'white', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: '800' }}>Último (Ativo)</span>
+                                                    ) : (
+                                                        <span style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: '800' }}>Inativo</span>
+                                                    )}
+                                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>
+                                                        (Por: {pub.creator_name || 'Usuário'})
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)', display: 'flex', gap: '12px' }}>
+                                                    <span>
+                                                        <strong style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>Link: </strong>
+                                                        <a href={linkHref} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--primary)', textDecoration: 'none' }}>
+                                                            {linkHref}
+                                                        </a>
+                                                    </span>
+                                                    {expireText && (
+                                                        <span>
+                                                            <strong style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>Expira: </strong>
+                                                            {expireText}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div style={{ textAlign: 'right', minWidth: '80px' }}>
+                                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Token</div>
+                                                <div style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '1rem', letterSpacing: '1px' }}>{pubToken}</div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Main Content Split Panels */}
                 <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '24px', flex: 1, overflow: 'hidden', minHeight: 0 }}>
@@ -1142,42 +1332,42 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                         {/* Right Image Column */}
                                         <div 
                                             className="presentation-slide-image-box" 
-                                            onClick={(e) => handleImageClick(e, item.id, img.url)}
                                             style={{
                                                 flex: 1,
                                                 display: 'flex',
                                                 justifyContent: 'center',
                                                 alignItems: 'center',
                                                 overflow: 'hidden',
-                                                position: 'relative',
-                                                cursor: 'crosshair',
                                                 background: '#f8fafc',
                                                 border: '1px solid #f1f5f9',
                                                 borderRadius: '6px'
                                             }}
                                             title="Clique em qualquer lugar da imagem para adicionar um post-it"
                                         >
-                                            <img 
-                                                className="presentation-slide-image"
-                                                src={img.url} 
-                                                alt={`${item.name} - ${imgIndex}`} 
-                                                style={{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    maxHeight: 'calc(100vh - 170px)',
-                                                    objectFit: 'contain',
-                                                    pointerEvents: 'none',
-                                                    userSelect: 'none'
-                                                }} 
-                                            />
+                                            <div 
+                                                style={{ position: 'relative', display: 'inline-block', cursor: 'crosshair' }} 
+                                                onClick={(e) => handleImageClick(e, item.id, img.url)}
+                                            >
+                                                <img 
+                                                    className="presentation-slide-image"
+                                                    src={img.url} 
+                                                    alt={`${item.name} - ${imgIndex}`} 
+                                                    style={{
+                                                        maxWidth: '100%',
+                                                        maxHeight: 'calc(100vh - 170px)',
+                                                        display: 'block',
+                                                        pointerEvents: 'none',
+                                                        userSelect: 'none'
+                                                    }} 
+                                                />
 
-                                            {/* Render Screen Pins and Popovers */}
-                                            {annotations.map((ann, annIdx) => (
-                                                <React.Fragment key={ann.id}>
-                                                    {/* Screen Pin */}
-                                                    <div 
-                                                        className="interactive-pin no-print"
-                                                        onClick={(e) => {
+                                                {/* Render Screen Pins and Popovers */}
+                                                {annotations.map((ann, annIdx) => (
+                                                    <React.Fragment key={ann.id}>
+                                                        {/* Screen Pin */}
+                                                        <div 
+                                                            className="interactive-pin no-print"
+                                                            onClick={(e) => {
                                                             e.stopPropagation();
                                                             setActiveAnnotationId(activeAnnotationId === ann.id ? null : ann.id);
                                                         }}
@@ -1234,16 +1424,22 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                                     </div>
 
                                                     {/* Screen Popover / Post-it Editor */}
-                                                    {activeAnnotationId === ann.id && (
-                                                        <div 
-                                                            className="pin-popover no-print"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                left: `${ann.x}%`,
-                                                                top: `${ann.y + 4}%`,
-                                                                transform: 'translateX(-50%)',
-                                                                background: '#fef08a',
+                                                    {activeAnnotationId === ann.id && (() => {
+                                                        const isBottom = ann.y > 65;
+                                                        let transformX = '-50%';
+                                                        if (ann.x < 15) transformX = '-10%';
+                                                        else if (ann.x > 85) transformX = '-90%';
+
+                                                        return (
+                                                            <div 
+                                                                className="pin-popover no-print"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    left: `${ann.x}%`,
+                                                                    ...(isBottom ? { bottom: `${100 - ann.y + 4}%` } : { top: `${ann.y + 4}%` }),
+                                                                    transform: `translateX(${transformX})`,
+                                                                    background: '#fef08a',
                                                                 border: '1px solid #facc15',
                                                                 borderRadius: '8px',
                                                                 padding: '10px',
@@ -1312,9 +1508,11 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                                                 </button>
                                                             </div>
                                                         </div>
-                                                    )}
+                                                    );
+                                                })()}
                                                 </React.Fragment>
-                                            ))}
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
 

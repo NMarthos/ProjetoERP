@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor } from 'lucide-react';
+import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 import { PartnerModal } from './Partners';
@@ -774,6 +774,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     const [showFluxo, setShowFluxo] = useState(false);
     const [fluxoRows, setFluxoRows] = useState([]);
     const [selectedCondIdx, setSelectedCondIdx] = useState(null);
+    const [conditions, setConditions] = useState([]);
 
     useEffect(() => {
         if (!proposal) return;
@@ -789,7 +790,16 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         // Fetch fresh settings (aligned with BudgetModal)
         api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
         api.get('/payment-methods')
-            .then(r => setAvailableMethods(r.data.filter(m => m.active)))
+            .then(r => {
+                const methods = r.data.filter(m => m.active);
+                setAvailableMethods(methods);
+                const method = [...methods].slice(-1)[0];
+                if (method && method.conditions) {
+                    setConditions(method.conditions.map(c => ({ ...c })));
+                } else {
+                    setConditions([]);
+                }
+            })
             .catch(() => {});
     }, [proposal]);
 
@@ -881,6 +891,36 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         setForm(f => ({ ...f, payment_methods: text }));
         setSelectedCondIdx(idx);
         setFluxoRows(buildFluxoRows(cond, idx));
+    };
+
+    const handleUpdateConditionField = (field, val) => {
+        if (selectedCondIdx === null) return;
+        const updated = conditions.map((c, idx) => {
+            if (idx === selectedCondIdx) {
+                return {
+                    ...c,
+                    [field]: val
+                };
+            }
+            return c;
+        });
+        setConditions(updated);
+        
+        const updatedCond = updated[selectedCondIdx];
+        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(updatedCond);
+        let text = `Opção ${selectedCondIdx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
+        text += `• Total: ${maskCurrency(financedTotal)}\n`;
+        if (isAVista) {
+            text += `• À vista: ${maskCurrency(financedTotal)}`;
+        } else if (downPct > 0) {
+            text += `• Entrada (${downPct}%): ${maskCurrency(downValue)}\n`;
+            text += `• + ${installments}x de ${maskCurrency(installAmt)}`;
+        } else {
+            text += `• ${installments}x de ${maskCurrency(installAmt)}`;
+        }
+        setForm(f => ({ ...f, payment_methods: text }));
+        setFluxoRows(buildFluxoRows(updatedCond, selectedCondIdx));
     };
 
     const handleAction = async (newStatus) => {
@@ -1083,34 +1123,35 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                     )}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                    {activeMethod.conditions.map((cond, idx) => {
+                                    {conditions.map((cond, idx) => {
                                         const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+                                        const isSelected = selectedCondIdx === idx;
                                         return (
                                             <div
                                                 key={idx}
                                                 onClick={() => handleSelectCondition(cond, idx)}
                                                 style={{
                                                     border: '1.5px solid',
-                                                    borderColor: isAVista ? '#86efac' : 'var(--border)',
+                                                    borderColor: isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)'),
                                                     borderRadius: '12px',
                                                     padding: '14px',
-                                                    background: isAVista ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.03)',
+                                                    background: isSelected ? 'rgba(99,102,241,0.08)' : (isAVista ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.03)'),
                                                     cursor: 'pointer',
-                                                    transition: 'border-color 0.2s',
+                                                    transition: 'all 0.2s',
                                                 }}
                                                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                                                onMouseLeave={e => e.currentTarget.style.borderColor = isAVista ? '#86efac' : 'var(--border)'}
+                                                onMouseLeave={e => e.currentTarget.style.borderColor = isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)')}
                                             >
                                                 <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.5px' }}>
                                                     Opção {idx + 1}
                                                 </div>
-                                                <div style={{ fontSize: '13px', fontWeight: '900', color: isAVista ? '#16a34a' : 'white', borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
+                                                <div style={{ fontSize: '13px', fontWeight: '900', color: isSelected ? 'var(--primary)' : (isAVista ? '#16a34a' : 'white'), borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
                                                     {isAVista ? (
                                                         `À vista: ${maskCurrency(financedTotal)}`
                                                     ) : downPct > 0 ? (
                                                         <>
-                                                            <div>Entrada {downPct}%: <span style={{ color: '#6366f1' }}>{maskCurrency(downValue)}</span></div>
-                                                            <div>+ {installments}x de <span style={{ color: '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
+                                                            <div>Entrada {downPct}%: <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(downValue)}</span></div>
+                                                            <div>+ {installments}x de <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
                                                         </>
                                                     ) : (
                                                         `${installments}x de ${maskCurrency(installAmt)}`
@@ -1125,6 +1166,72 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                         );
                                     })}
                                 </div>
+
+                                {selectedCondIdx !== null && (
+                                    <div style={{
+                                        border: '1.5px solid var(--border)',
+                                        borderRadius: '12px',
+                                        padding: '16px',
+                                        background: 'rgba(255,255,255,0.02)',
+                                        marginTop: '0.5rem',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '12px'
+                                    }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            ✏️ Customizar Opção {selectedCondIdx + 1}
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Parcelas</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="120"
+                                                    value={conditions[selectedCondIdx]?.installments || 1}
+                                                    onChange={e => handleUpdateConditionField('installments', parseInt(e.target.value) || 1)}
+                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Desconto (%)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    step="0.01"
+                                                    value={conditions[selectedCondIdx]?.discount_percentage || 0}
+                                                    onChange={e => handleUpdateConditionField('discount_percentage', parseFloat(e.target.value) || 0)}
+                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Entrada (%)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    step="0.01"
+                                                    value={conditions[selectedCondIdx]?.down_payment_percentage || 0}
+                                                    onChange={e => handleUpdateConditionField('down_payment_percentage', parseFloat(e.target.value) || 0)}
+                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Custo Fin. / Juros (%)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    step="0.01"
+                                                    value={conditions[selectedCondIdx]?.finance_cost_percentage || 0}
+                                                    onChange={e => handleUpdateConditionField('finance_cost_percentage', parseFloat(e.target.value) || 0)}
+                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         ) : (
                             <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Nenhuma forma de pagamento ativa encontrada.</div>
@@ -1147,7 +1254,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                     <div style={{ display: 'flex', gap: '1rem' }}>
                         <button onClick={() => handleAction('ARQUIVADO')} disabled={saving} className="btn-secondary">Arquivar</button>
                         <button onClick={() => handleAction('REJEITADO')} disabled={saving} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #ef4444', background: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer', fontWeight: '700' }}>Declinar</button>
-                        <button onClick={() => handleAction('APROVADO')} disabled={saving} className="btn-premium" style={{ padding: '12px 40px', fontSize: '1.1rem' }}>{saving ? 'Processando...' : '✓ Aprovar e Iniciar Projeto'}</button>
+                        <button onClick={() => handleAction('APROVADO')} disabled={saving} className="btn-premium" style={{ padding: '12px 40px', fontSize: '1.1rem' }}>{saving ? 'Processando...' : '✓ Demonstrar fluxo'}</button>
                     </div>
                 </div>
             </div>
@@ -1273,7 +1380,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                                 <button onClick={() => setShowFluxo(false)} className="btn-secondary" disabled={saving}>Voltar</button>
                                 <button onClick={handleConfirmApproval} disabled={saving} className="btn-premium" style={{ padding: '12px 32px', fontSize: '1rem' }}>
-                                    {saving ? 'Aprovando...' : '✓ Confirmar Aprovação'}
+                                    {saving ? 'Aprovando...' : '✓ Aprovar'}
                                 </button>
                             </div>
                             {error && <div style={{ color: '#ef4444', fontSize: '0.88rem', marginTop: '8px', textAlign: 'right' }}>{error}</div>}
@@ -1378,6 +1485,7 @@ const Proposals = ({ user }) => {
 
     const statusConfig = {
         'ABERTO': { color: '#eab308', icon: <Clock size={16} />, label: 'Aberta' },
+        'REVISAR': { color: '#f97316', icon: <AlertCircle size={16} />, label: 'Em Revisão' },
         'APROVADO': { color: '#10b981', icon: <CheckCircle size={16} />, label: 'Aprovada' },
         'REJEITADO': { color: '#ef4444', icon: <XCircle size={16} />, label: 'Declinada' },
         'ARQUIVADO': { color: 'var(--text-muted)', icon: <Clock size={16} />, label: 'Arquivada' }
@@ -1447,6 +1555,12 @@ const Proposals = ({ user }) => {
                     <Clock size={18} /> Aberta
                     <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
                         {proposals.filter(p => p.status === 'ABERTO').length}
+                    </span>
+                </div>
+                <div style={tabStyle('REVISAR')} onClick={() => setActiveStatusTab('REVISAR')}>
+                    <AlertCircle size={18} /> Revisão
+                    <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
+                        {proposals.filter(p => p.status === 'REVISAR').length}
                     </span>
                 </div>
                 <div style={tabStyle('APROVADO')} onClick={() => setActiveStatusTab('APROVADO')}>

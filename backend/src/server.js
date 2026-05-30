@@ -799,6 +799,120 @@ async function start() {
             }
         });
 
+        app.post('/api/proposals/:id/publish', authMiddleware, async (req, res) => {
+            try {
+                const proposal = await db.get('SELECT id FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
+
+                const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+                const expires = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
+
+                await db.run('UPDATE proposals SET presentation_token=?, presentation_token_expires=? WHERE id=? AND tenant_id=?',
+                    [token, expires, req.params.id, req.tenantId]);
+
+                const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+                const host = req.headers.host;
+                const link = `/presentation/view/${req.params.id}`;
+                const expireDateStr = new Date(expires).toLocaleString('pt-BR');
+                
+                await db.run(
+                    'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [req.tenantId, req.params.id, new Date().toISOString().split('T')[0], new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), 'Apresentação Publicada', `Link: ${link}\nToken de Acesso: ${token}\nExpira em: ${expireDateStr}`, 'Publicação', 'FECHADO', 0, req.user.id]
+                );
+
+                res.json({ token, link });
+            } catch (err) {
+                console.error("POST proposals publish error:", err);
+                res.status(500).json({ error: 'Erro ao publicar orçamento' });
+            }
+        });
+
+        app.post('/api/public/proposals/:id/verify-token', async (req, res) => {
+            const { token } = req.body;
+            try {
+                const proposal = await db.get(`
+                    SELECT p.id, p.budget_data, p.partner_id, p.presentation_token, p.presentation_token_expires, 
+                           pt.name as partner_name, t.logo_url, t.website, t.instagram, t.phone as tenant_phone,
+                           u.name as creator_name, u.phone as creator_phone, u.email as creator_email
+                    FROM proposals p
+                    JOIN partners pt ON p.partner_id = pt.id
+                    JOIN tenants t ON p.tenant_id = t.id
+                    LEFT JOIN users u ON p.user_id = u.id
+                    WHERE p.id=?`, [req.params.id]);
+
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
+
+                if (!proposal.presentation_token || proposal.presentation_token !== token.trim().toUpperCase()) {
+                    return res.status(401).json({ error: 'Token inválido' });
+                }
+
+                if (new Date(proposal.presentation_token_expires) < new Date()) {
+                    return res.status(401).json({ error: 'Token expirado' });
+                }
+
+                res.json({
+                    id: proposal.id,
+                    budget_data: proposal.budget_data,
+                    partner_name: proposal.partner_name,
+                    expires: proposal.presentation_token_expires,
+                    tenant: {
+                        logo_url: proposal.logo_url,
+                        website: proposal.website,
+                        instagram: proposal.instagram,
+                        phone: proposal.tenant_phone
+                    },
+                    creator: {
+                        name: proposal.creator_name,
+                        phone: proposal.creator_phone,
+                        email: proposal.creator_email
+                    }
+                });
+            } catch (err) {
+                console.error("POST public verify token error:", err);
+                res.status(500).json({ error: 'Erro interno no servidor' });
+            }
+        });
+
+        app.post('/api/public/proposals/:id/submit-feedback', async (req, res) => {
+            const { token, action, budget_data } = req.body;
+            try {
+                const proposal = await db.get('SELECT id, presentation_token, presentation_token_expires, tenant_id FROM proposals WHERE id=?', [req.params.id]);
+
+                if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
+                if (!proposal.presentation_token || proposal.presentation_token !== token.trim().toUpperCase()) {
+                    return res.status(401).json({ error: 'Token inválido' });
+                }
+                if (new Date(proposal.presentation_token_expires) < new Date()) {
+                    return res.status(401).json({ error: 'Token expirado' });
+                }
+
+                await db.run('BEGIN TRANSACTION');
+
+                if (action === 'Aprovar') {
+                    // Update budget_data and clear token
+                    await db.run('UPDATE proposals SET budget_data=?, presentation_token=NULL, presentation_token_expires=NULL WHERE id=?',
+                        [budget_data, req.params.id]);
+                } else if (action === 'Revisar') {
+                    // Update budget_data and clear token, then update status
+                    await db.run('UPDATE proposals SET budget_data=?, presentation_token=NULL, presentation_token_expires=NULL, status=? WHERE id=?',
+                        [budget_data, 'REVISAR', req.params.id]);
+                    
+                    // Generate an event for the user
+                    await db.run(
+                        'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [proposal.tenant_id, req.params.id, new Date().toISOString().split('T')[0], '12:00', 'Revisão Solicitada pelo Cliente', 'O cliente adicionou anotações à apresentação e solicitou uma revisão.', 'Tarefa', 'ABERTO', 1, null]
+                    );
+                }
+
+                await db.run('COMMIT');
+                res.json({ ok: true });
+            } catch (err) {
+                await db.run('ROLLBACK');
+                console.error("POST public submit feedback error:", err);
+                res.status(500).json({ error: 'Erro interno no servidor' });
+            }
+        });
+
         // --- PRODUCTION ORDERS ---
         app.get('/api/production-orders', authMiddleware, async (req, res) => {
             try {
