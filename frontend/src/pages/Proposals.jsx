@@ -831,21 +831,13 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
             return s;
         }, 0), 0);
 
-    // Most recent active method (same rule as printed proposal)
-    const activeMethod = [...availableMethods].slice(-1)[0];
-
-    // Max finance cost across all conditions → used for à vista discount
-    const maxFinancePct = activeMethod
-        ? Math.max(0, ...activeMethod.conditions.map(c => c.finance_cost_percentage || 0))
-        : 0;
-    const aVistaExtraDiscountPct = parseFloat((maxFinancePct * 0.70).toFixed(2));
+    // Most recent active method (by ID)
+    const activeMethod = [...availableMethods].sort((a, b) => a.id - b.id).slice(-1)[0];
 
     const calcCondition = (cond) => {
         const installments = cond.installments || 1;
         const isAVista = installments === 1;
-        const totalDiscountPct = isAVista
-            ? (cond.discount_percentage || 0) + aVistaExtraDiscountPct
-            : (cond.discount_percentage || 0);
+        const totalDiscountPct = cond.discount_percentage || 0;
         const discountedTotal = grandTotal * (1 - totalDiscountPct / 100);
         const financedTotal   = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
         const downPct         = cond.down_payment_percentage || 0;
@@ -1118,9 +1110,6 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                             <>
                                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-1rem' }}>
                                     Forma ativa: <strong style={{ color: 'white' }}>{activeMethod.name}</strong>
-                                    {aVistaExtraDiscountPct > 0 && (
-                                        <span style={{ color: '#16a34a', marginLeft: '8px' }}>• Desconto à vista: {aVistaExtraDiscountPct.toFixed(2)}%</span>
-                                    )}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                     {conditions.map((cond, idx) => {

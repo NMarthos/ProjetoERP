@@ -342,14 +342,14 @@ async function start() {
                 // Busca parâmetros globais para cálculo
                 const taxes = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
                 const markup = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"', [req.tenantId]);
-                const maxFinance = await db.get('SELECT MAX(finance_cost_percentage) as max_val FROM payment_conditions WHERE tenant_id = ?', [req.tenantId]);
+                // financeCost is global 0
 
                 res.json({
                     proposals,
                     settings: {
                         taxes: taxes ? parseFloat(taxes.value) : 0,
                         markup: markup ? parseFloat(markup.value) : 0,
-                        financeCost: maxFinance ? parseFloat(maxFinance.max_val || 0) : 0
+                        financeCost: 0
                     }
                 });
             } catch (err) {
@@ -831,8 +831,8 @@ async function start() {
             const { token } = req.body;
             try {
                 const proposal = await db.get(`
-                    SELECT p.id, p.budget_data, p.partner_id, p.presentation_token, p.presentation_token_expires, 
-                           pt.name as partner_name, t.logo_url, t.website, t.instagram, t.phone as tenant_phone,
+                    SELECT p.id, p.tenant_id, p.budget_data, p.value, p.partner_id, p.presentation_token, p.presentation_token_expires, 
+                           pt.name as partner_name, pt.commission_percentage as referrer_commission, t.logo_url, t.website, t.instagram, t.phone as tenant_phone,
                            u.name as creator_name, u.phone as creator_phone, u.email as creator_email
                     FROM proposals p
                     JOIN partners pt ON p.partner_id = pt.id
@@ -850,9 +850,19 @@ async function start() {
                     return res.status(401).json({ error: 'Token expirado' });
                 }
 
+                const payment_methods = await db.all('SELECT * FROM payment_methods WHERE tenant_id = ? ORDER BY id ASC', [proposal.tenant_id]);
+                for (let method of payment_methods) {
+                    method.conditions = await db.all('SELECT * FROM payment_conditions WHERE payment_method_id = ? AND tenant_id = ?', [method.id, proposal.tenant_id]);
+                }
+
+                const taxes = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [proposal.tenant_id]);
+                const markup = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"', [proposal.tenant_id]);
+                const finance = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_CUSTOFINANCEIRO"', [proposal.tenant_id]);
+
                 res.json({
                     id: proposal.id,
                     budget_data: proposal.budget_data,
+                    value: proposal.value,
                     partner_name: proposal.partner_name,
                     expires: proposal.presentation_token_expires,
                     tenant: {
@@ -865,7 +875,14 @@ async function start() {
                         name: proposal.creator_name,
                         phone: proposal.creator_phone,
                         email: proposal.creator_email
-                    }
+                    },
+                    settings: {
+                        taxes: taxes ? parseFloat(taxes.value) : 0,
+                        markup: markup ? parseFloat(markup.value) : 0,
+                        financeCost: finance ? parseFloat(finance.value) : 0,
+                        comm: proposal.referrer_commission ? parseFloat(proposal.referrer_commission) : 0
+                    },
+                    payment_methods
                 });
             } catch (err) {
                 console.error("POST public verify token error:", err);
@@ -874,7 +891,7 @@ async function start() {
         });
 
         app.post('/api/public/proposals/:id/submit-feedback', async (req, res) => {
-            const { token, action, budget_data } = req.body;
+            const { token, action, budget_data, payment_methods, payment_notes } = req.body;
             try {
                 const proposal = await db.get('SELECT id, presentation_token, presentation_token_expires, tenant_id FROM proposals WHERE id=?', [req.params.id]);
 
@@ -1118,12 +1135,12 @@ async function start() {
             try {
                 const taxes      = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
                 const markup     = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"',   [req.tenantId]);
-                const maxFinance = await db.get('SELECT MAX(finance_cost_percentage) as max_val FROM payment_conditions WHERE tenant_id = ?', [req.tenantId]);
+                const finance    = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_CUSTOFINANCEIRO"', [req.tenantId]);
                 const tenant     = await db.get('SELECT name, cnpj, logo_url, website, instagram, phone FROM tenants WHERE id = ?', [req.tenantId]);
                 res.json({
                     taxes:       taxes      ? parseFloat(taxes.value)              : 0,
                     markup:      markup     ? parseFloat(markup.value)             : 0,
-                    financeCost: maxFinance ? parseFloat(maxFinance.max_val || 0)  : 0,
+                    financeCost: finance    ? parseFloat(finance.value)            : 0,
                     tenant:      tenant     || null
                 });
             } catch (err) {

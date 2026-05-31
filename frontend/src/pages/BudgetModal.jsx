@@ -9,24 +9,25 @@ import BuildPresentationModal from './BuildPresentationModal';
 const predictGroup = (name, unit) => {
     if (!name) return 'Outros';
     const n = name.toUpperCase();
-    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Servico';
-    if (n.startsWith('MDF') || n.includes('MDF')) return 'Mdf';
-    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fita';
-    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Ferragem';
-    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragem';
-    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Quimicos';
-    if (n.includes('VERNIZ') || n.includes('PINTURA') || n.includes('LACA') || n.includes('ACABAMENTO')) return 'Acabamento';
+    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Serviços';
+    if (n.startsWith('MDF') || n.includes('MDF')) return 'MDFs';
+    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fitas';
+    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Componentes';
+    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragens';
+    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Químicos';
+    if (n.includes('VIDRO') || n.includes('ESPELHO')) return 'Vidros';
     return 'Outros';
 };
 
 const GROUP_SEQUENCE = [
-    { key: 'Mdf', label: 'MDF', icon: Layers },
-    { key: 'Fita', label: 'Fita', icon: Scissors },
-    { key: 'Ferragem', label: 'Ferragem', icon: Wrench },
-    { key: 'Quimicos', label: 'Químicos', icon: Droplet },
-    { key: 'Acabamento', label: 'Acabamento', icon: Paintbrush },
-    { key: 'Outros', label: 'Outro', icon: HelpCircle },
-    { key: 'Servico', label: 'Serviço', icon: Briefcase }
+    { key: 'MDFs', label: 'MDFs', icon: Layers },
+    { key: 'Fitas', label: 'Fitas', icon: Scissors },
+    { key: 'Ferragens', label: 'Ferragens', icon: Wrench },
+    { key: 'Componentes', label: 'Componentes', icon: Package },
+    { key: 'Vidros', label: 'Vidros', icon: Paintbrush },
+    { key: 'Químicos', label: 'Químicos', icon: Droplet },
+    { key: 'Outros', label: 'Outros', icon: HelpCircle },
+    { key: 'Serviços', label: 'Serviços', icon: Briefcase }
 ];
 
 const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint = false }) => {
@@ -35,7 +36,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
     const [budgetItems, setBudgetItems] = useState([]);
     const [activeItemId, setActiveItemId] = useState(null);
-    const [selectedGroup, setSelectedGroup] = useState('Mdf');
+    const [selectedGroup, setSelectedGroup] = useState('MDFs');
     const [showDivergencesModal, setShowDivergencesModal] = useState(false);
     const [divergences, setDivergences] = useState([]);
     
@@ -141,6 +142,36 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                 };
                 setPricingSnapshot(freshParams);
                 console.log('[BudgetModal] Parâmetros de precificação atualizados:', freshParams);
+
+                // Auto-sync if the new params change the budget total significantly
+                // Wait a moment for budgetItems to load if they are loading concurrently
+                setTimeout(() => {
+                    setBudgetItems(currentItems => {
+                        if (currentItems && currentItems.length > 0) {
+                            const newTotal = currentItems.reduce((acc, item) => {
+                                const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
+                                const comm        = freshParams.commission  / 100;
+                                const taxes       = freshParams.taxes       / 100;
+                                const financeCost = freshParams.financeCost / 100;
+                                const markup      = freshParams.markup      / 100;
+                                const denominator = 1 - (comm + taxes + financeCost + markup);
+                                const finalPrice  = denominator <= 0 ? itemCost : itemCost / denominator;
+                                return acc + finalPrice;
+                            }, 0);
+
+                            if (Math.abs(newTotal - (proposal.value || 0)) > 1) {
+                                console.log('[BudgetModal] Auto-syncing updated price to DB:', newTotal);
+                                api.put(`/proposals/${proposal.id}`, {
+                                    budget_data: JSON.stringify(currentItems),
+                                    pricing_snapshot: JSON.stringify(freshParams),
+                                    value: newTotal
+                                }).catch(() => {});
+                                proposal.value = newTotal;
+                            }
+                        }
+                        return currentItems;
+                    });
+                }, 1000);
             })
             .catch(() => {
                 // Fallback: use prop settings if API fails
@@ -408,6 +439,12 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         const currentParams = getPricingParams();
         setPricingSnapshot(currentParams); // Update local state too
 
+        // Keep local proposal.value in sync so we don't spam API
+        proposal.value = items.reduce((acc, item) => {
+            const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
+            return acc + calculateSalePrice(itemCost, currentParams);
+        }, 0);
+
         const dataStr = JSON.stringify(items);
         
         // Calculate totals for the entire proposal
@@ -450,7 +487,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         const list = [];
         for (const item of budgetItems) {
             // 1. Check Service
-            const hasService = item.products.some(p => p.product.group_name === 'Servico');
+            const hasService = item.products.some(p => p.product.group_name === 'Serviços');
             if (!hasService) {
                 list.push({
                     itemName: item.name,
@@ -743,7 +780,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     <div>
                                         <label>Grupo / Categoria *</label>
                                         <select value={newProduct.group_name} onChange={e => setNewProduct(p => ({ ...p, group_name: e.target.value }))}>
-                                            {['Mdf', 'Fita', 'Ferragem', 'Quimicos', 'Acabamento', 'Servico', 'Outros'].map(g => (
+                                            {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
                                                 <option key={g} value={g}>{g}</option>
                                             ))}
                                         </select>
@@ -1093,7 +1130,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 <p style={{padding: '10px', textAlign: 'center', color:'var(--text-muted)'}}>Selecione um item acima</p>
                             ) : (
                                 <>
-                                    {selectedGroup === 'Fita' && suggestedEdgeBands.length > 0 && (
+                                    {selectedGroup === 'Fitas' && suggestedEdgeBands.length > 0 && (
                                         <div style={{ background: 'rgba(167,139,250,0.06)', borderBottom: '1.5px solid rgba(167,139,250,0.2)', padding: '10px 12px', marginBottom: '8px' }}>
                                             <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#a78bfa', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <span>✨ Fitas de Borda Recomendadas</span>
@@ -1478,27 +1515,36 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                         {materials.length > 0 && (
                                                             <>
                                                                 <tr style={{ background: '#f8fafc' }}><td colSpan="5" style={{ padding: '5px 10px', fontSize: '10px', fontWeight: '900', color: '#6366f1' }}>MATERIAIS</td></tr>
-                                                                {materials.map((sp, idx) => (
-                                                                    <tr key={`mat-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                                        <td style={{ padding: '6px 8px', textAlign: 'center', width: '52px' }}>
-                                                                            {sp.product.photo ? (
-                                                                                <img
-                                                                                    src={sp.product.photo}
-                                                                                    alt={sp.product.name}
-                                                                                    style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'block', margin: '0 auto' }}
-                                                                                />
-                                                                            ) : (
-                                                                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-                                                                                    <span style={{ fontSize: '18px', color: '#94a3b8' }}>📦</span>
-                                                                                </div>
-                                                                            )}
-                                                                        </td>
-                                                                        <td style={{ padding: '8px 10px', fontSize: '12px' }}>{sp.product.name}</td>
-                                                                        <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'center' }}>{sp.quantity} {sp.product.unit}</td>
-                                                                        <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.product.value)}</td>
-                                                                        <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.total)}</td>
-                                                                    </tr>
-                                                                ))}
+                                                                {GROUP_SEQUENCE.filter(g => g.key !== 'Serviços').map(group => {
+                                                                    const groupMaterials = materials.filter(sp => (sp.product.group_name || 'Outros') === group.key);
+                                                                    if (groupMaterials.length === 0) return null;
+                                                                    return (
+                                                                        <React.Fragment key={group.key}>
+                                                                            <tr style={{ background: '#f1f5f9' }}><td colSpan="5" style={{ padding: '5px 10px', fontSize: '9px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>{group.label}</td></tr>
+                                                                            {groupMaterials.map((sp, idx) => (
+                                                                                <tr key={`mat-${group.key}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                                    <td style={{ padding: '6px 8px', textAlign: 'center', width: '52px' }}>
+                                                                                        {sp.product.photo ? (
+                                                                                            <img
+                                                                                                src={sp.product.photo}
+                                                                                                alt={sp.product.name}
+                                                                                                style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'block', margin: '0 auto' }}
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <div style={{ width: '38px', height: '38px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                                                                                                <span style={{ fontSize: '18px', color: '#94a3b8' }}>📦</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td style={{ padding: '8px 10px', fontSize: '12px' }}>{sp.product.name}</td>
+                                                                                    <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'center' }}>{sp.quantity} {sp.product.unit}</td>
+                                                                                    <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.product.value)}</td>
+                                                                                    <td style={{ padding: '8px 10px', fontSize: '12px', textAlign: 'right' }}>{maskCurrency(sp.total)}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </React.Fragment>
+                                                                    );
+                                                                })}
                                                                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                                                                     <td colSpan="4" style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Subtotal Materiais:</td>
                                                                     <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: '12px', fontWeight: '800' }}>{maskCurrency(subTotalMaterial)}</td>

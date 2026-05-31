@@ -262,7 +262,7 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
         const list = [];
         items.forEach(item => {
             if (item.includeInPresentation === false) return;
-            const hasService = Array.isArray(item.products) && item.products.some(p => p.product.group_name === 'Servico');
+            const hasService = Array.isArray(item.products) && item.products.some(p => p.product.group_name === 'Serviços');
             if (!hasService) {
                 list.push({
                     itemName: item.name,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Lock, Loader2, AlertCircle, Image, Check, FileEdit, X, MessageSquare } from 'lucide-react';
+import { Lock, Loader2, AlertCircle, Image, Check, FileEdit, X, MessageSquare, ClipboardCheck } from 'lucide-react';
 
 const PublicPresentationView = () => {
     const { id } = useParams();
@@ -11,6 +11,11 @@ const PublicPresentationView = () => {
     const [items, setItems] = useState([]);
     const [submitting, setSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
+    
+    // Negotiation state
+    const [showNegotiation, setShowNegotiation] = useState(false);
+    const [selectedCondIdx, setSelectedCondIdx] = useState(null);
+    const [paymentMethodsText, setPaymentMethodsText] = useState('');
     
     // Annotation state
     const [activeAnnotationId, setActiveAnnotationId] = useState(null);
@@ -140,6 +145,16 @@ const PublicPresentationView = () => {
     };
 
     const handleSubmitFeedback = async (action) => {
+        if (action === 'Aprovar' && !showNegotiation) {
+            setShowNegotiation(true);
+            return;
+        }
+
+        if (action === 'Aprovar' && selectedCondIdx === null) {
+            alert('Por favor, selecione uma condição de pagamento.');
+            return;
+        }
+
         if (!window.confirm(`Tem certeza que deseja ${action.toLowerCase()} o projeto?`)) return;
         setSubmitting(true);
         try {
@@ -149,7 +164,8 @@ const PublicPresentationView = () => {
                 body: JSON.stringify({
                     token: token.trim().toUpperCase(),
                     action: action === 'Encaminhar para revisão' ? 'Revisar' : 'Aprovar',
-                    budget_data: JSON.stringify(items)
+                    budget_data: JSON.stringify(items),
+                    payment_methods: paymentMethodsText
                 })
             });
 
@@ -160,6 +176,46 @@ const PublicPresentationView = () => {
             alert('Falha ao processar solicitação: ' + err.message);
             setSubmitting(false);
         }
+    };
+
+    const grandTotal = presentationData?.value || 0;
+    const maskCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+
+    // Allow active to be 1, true, or null (default)
+    const availableMethods = presentationData?.payment_methods?.filter(m => m.active !== 0 && m.active !== '0' && m.active !== false) || [];
+    // Sort by ID to ensure we get the most recently created active method
+    const sortedMethods = [...availableMethods].sort((a, b) => a.id - b.id);
+    const activeMethod = sortedMethods.slice(-1)[0];
+    const conditions = activeMethod?.conditions || [];
+
+    const calcCondition = (cond) => {
+        const installments = cond.installments || 1;
+        const isAVista = installments === 1;
+        const totalDiscountPct = cond.discount_percentage || 0;
+        const discountedTotal = grandTotal * (1 - totalDiscountPct / 100);
+        const financedTotal   = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
+        const downPct         = cond.down_payment_percentage || 0;
+        const downValue       = financedTotal * (downPct / 100);
+        const remaining       = financedTotal - downValue;
+        const installAmt      = installments > 1 ? remaining / installments : financedTotal;
+        return { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt };
+    };
+
+    const handleSelectCondition = (cond, idx) => {
+        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+        let text = `Opção ${idx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
+        text += `• Total: ${maskCurrency(financedTotal)}\n`;
+        if (isAVista) {
+            text += `• À vista: ${maskCurrency(financedTotal)}`;
+        } else if (downPct > 0) {
+            text += `• Entrada (${downPct}%): ${maskCurrency(downValue)}\n`;
+            text += `• + ${installments}x de ${maskCurrency(installAmt)}`;
+        } else {
+            text += `• ${installments}x de ${maskCurrency(installAmt)}`;
+        }
+        setPaymentMethodsText(text);
+        setSelectedCondIdx(idx);
     };
 
     const getWebsiteUrl = () => {
@@ -238,7 +294,7 @@ const PublicPresentationView = () => {
                     </div>
 
                     {/* Slides */}
-                    {activeSlides.length > 0 ? activeSlides.map((slide, idx) => {
+                    {!showNegotiation && activeSlides.length > 0 ? activeSlides.map((slide, idx) => {
                         const annotations = slide.img.annotations || [];
                         const startIndex = globalAnnCounter;
                         globalAnnCounter += annotations.length;
@@ -438,7 +494,7 @@ const PublicPresentationView = () => {
                                     {/* Thumbnails under the image container */}
                                     {(() => {
                                         const rawProducts = (slide.item.products || []).filter(p => 
-                                            (p.product?.group_name === 'Ferragem' || p.product?.group_name === 'Mdf') && p.product?.photo
+                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs') && p.product?.photo
                                         );
                                         
                                         // Deduplicate by product ID so we only show 1 image of each MDF or Hardware
@@ -509,7 +565,87 @@ const PublicPresentationView = () => {
                                 </div>
                             </div>
                         );
-                    }) : (
+                    }) : null}
+
+                    {/* Negotiation Screen */}
+                    {showNegotiation && (
+                        <div style={{ padding: '40px', background: 'white' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                                <h3 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <ClipboardCheck size={24} color="#10b981" /> Escolha a Forma de Pagamento
+                                </h3>
+                                <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>
+                                    {maskCurrency(grandTotal)}
+                                </div>
+                            </div>
+                            <p style={{ color: '#475569', marginBottom: '30px', fontSize: '1.1rem' }}>
+                                Selecione uma das opções abaixo para concluir a aprovação do projeto.
+                            </p>
+
+                            {activeMethod ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                                    {conditions.length === 0 && (
+                                        <div style={{ padding: '15px', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', gridColumn: '1 / -1' }}>
+                                            Nenhuma condição de pagamento foi cadastrada para a forma "{activeMethod.name}".
+                                        </div>
+                                    )}
+                                    {conditions.map((cond, idx) => {
+                                        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+                                        const isSelected = selectedCondIdx === idx;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => handleSelectCondition(cond, idx)}
+                                                style={{
+                                                    border: '2px solid',
+                                                    borderColor: isSelected ? '#10b981' : '#e2e8f0',
+                                                    borderRadius: '12px',
+                                                    padding: '20px',
+                                                    background: isSelected ? 'rgba(16, 185, 129, 0.05)' : 'white',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    boxShadow: isSelected ? '0 10px 25px rgba(16, 185, 129, 0.15)' : 'none'
+                                                }}
+                                            >
+                                                <div style={{ fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', marginBottom: '10px', letterSpacing: '0.5px' }}>
+                                                    Opção {idx + 1}
+                                                </div>
+                                                <div style={{ fontSize: '16px', fontWeight: '800', color: isSelected ? '#10b981' : '#0f172a', borderTop: '1px solid #e2e8f0', paddingTop: '10px', lineHeight: '1.6' }}>
+                                                    {isAVista ? (
+                                                        `À vista: ${maskCurrency(financedTotal)}`
+                                                    ) : downPct > 0 ? (
+                                                        <>
+                                                            <div>Entrada {downPct}%: <span style={{ color: isSelected ? '#10b981' : '#3b82f6' }}>{maskCurrency(downValue)}</span></div>
+                                                            <div>+ {installments}x de <span style={{ color: isSelected ? '#10b981' : '#3b82f6' }}>{maskCurrency(installAmt)}</span></div>
+                                                        </>
+                                                    ) : (
+                                                        `${installments}x de ${maskCurrency(installAmt)}`
+                                                    )}
+                                                </div>
+                                                {totalDiscountPct > 0 && (
+                                                    <div style={{ fontSize: '13px', color: '#16a34a', fontWeight: '700', marginTop: '8px' }}>
+                                                        Desconto: {totalDiscountPct.toFixed(2)}%
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px' }}>
+                                    {presentationData?.payment_methods === undefined ? (
+                                        <>
+                                            Por favor, recarregue a página para carregar as formas de pagamento. (Pressione F5)
+                                        </>
+                                    ) : (
+                                        <>Nenhuma forma de pagamento configurada no momento.</>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {!showNegotiation && activeSlides.length === 0 && (
                         <div style={{ padding: '80px 40px', textAlign: 'center' }}>
                             <Image size={48} style={{ color: '#cbd5e1', margin: '0 auto 20px auto' }} />
                             <h3 style={{ fontSize: '1.2rem', color: '#64748b' }}>Nenhuma imagem incluída nesta apresentação.</h3>
@@ -544,21 +680,36 @@ const PublicPresentationView = () => {
                                 }}
                             >
                                 {submitting ? <Loader2 size={18} className="spin" /> : <Check size={18} />}
-                                Aprovar Projeto
+                                {showNegotiation ? 'Confirmar Fechamento' : 'Aprovar Projeto'}
                             </button>
                         )}
-                        <button 
-                            onClick={() => window.location.href = getWebsiteUrl()}
-                            disabled={submitting}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px',
-                                background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: '8px',
-                                fontSize: '1rem', fontWeight: 'bold', cursor: submitting ? 'not-allowed' : 'pointer'
-                            }}
-                        >
-                            <X size={18} />
-                            Fechar
-                        </button>
+                        {showNegotiation && (
+                            <button 
+                                onClick={() => setShowNegotiation(false)}
+                                disabled={submitting}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px',
+                                    background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: '8px',
+                                    fontSize: '1rem', fontWeight: 'bold', cursor: submitting ? 'not-allowed' : 'pointer'
+                                }}
+                            >
+                                Voltar
+                            </button>
+                        )}
+                        {!showNegotiation && (
+                            <button 
+                                onClick={() => window.location.href = getWebsiteUrl()}
+                                disabled={submitting}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px',
+                                    background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: '8px',
+                                    fontSize: '1rem', fontWeight: 'bold', cursor: submitting ? 'not-allowed' : 'pointer'
+                                }}
+                            >
+                                <X size={18} />
+                                Fechar
+                            </button>
+                        )}
                     </div>
 
                     {/* Closing Slide */}

@@ -71,13 +71,13 @@ const ManufacturerModal = ({ manufacturer, onClose, onSave }) => {
 const predictGroup = (name, unit) => {
     if (!name) return 'Outros';
     const n = name.toUpperCase();
-    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Servico';
-    if (n.startsWith('MDF') || n.includes('MDF')) return 'Mdf';
-    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fita';
-    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Ferragem';
-    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragem';
-    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Quimicos';
-    if (n.includes('VERNIZ') || n.includes('PINTURA') || n.includes('LACA') || n.includes('ACABAMENTO')) return 'Acabamento';
+    if (['DF', 'DM', 'DIA', 'H'].includes(unit?.toUpperCase()) || n.includes('MÃO DE OBRA') || n.includes('MAO DE OBRA') || n.includes('SERVIÇO') || n.includes('SERVICO')) return 'Serviços';
+    if (n.startsWith('MDF') || n.includes('MDF')) return 'MDFs';
+    if (n.startsWith('FB') || n.includes('FB ') || n.includes('FITA DE BORDA') || n.includes('FITA')) return 'Fitas';
+    if (n.includes('PARAFUSO') || n.includes('PREGO') || n.includes('COMPONENTES') || n.includes('COMPONENTE')) return 'Componentes';
+    if (n.includes('DOBRADIÇA') || n.includes('DOBRADICA') || n.includes('CORREDIÇA') || n.includes('CORREDICA') || n.includes('PUXADOR') || n.includes('FECHADURA') || n.includes('FERRAGEM') || n.includes('FERRAGENS')) return 'Ferragens';
+    if (n.includes('COLA') || n.includes('ADESIVO') || n.includes('SELANTE') || n.includes('SILICONE')) return 'Químicos';
+    if (n.includes('VIDRO') || n.includes('ESPELHO')) return 'Vidros';
     return 'Outros';
 };
 
@@ -214,7 +214,7 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                         <div>
                             <label>Grupo / Categoria *</label>
                             <select value={form.group_name} onChange={e => setForm({...form, group_name: e.target.value})}>
-                                {['Mdf', 'Fita', 'Ferragem', 'Quimicos', 'Acabamento', 'Servico', 'Outros'].map(g => (
+                                {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
                                     <option key={g} value={g}>{g}</option>
                                 ))}
                             </select>
