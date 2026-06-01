@@ -1170,13 +1170,21 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                     margin: 20px 0 !important;
                                     min-height: 0 !important;
                                 }
-                                .presentation-slide-image-box {
+                                .presentation-slide-image-wrapper {
+                                    flex: 1 !important;
+                                    display: flex !important;
+                                    flex-direction: column !important;
+                                    min-width: 0 !important;
                                     height: calc(100vh - 170px) !important;
                                     max-height: calc(100vh - 170px) !important;
+                                }
+                                .presentation-slide-image-box {
+                                    flex: 1 !important;
                                     display: flex !important;
                                     justify-content: center !important;
                                     align-items: center !important;
                                     overflow: hidden !important;
+                                    min-height: 0 !important;
                                 }
                                 .presentation-slide-image {
                                     max-width: 100% !important;
@@ -1327,23 +1335,26 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                                     </div>
                                                 </div>
                                             )}
+                                            
                                         </div>
 
                                         {/* Right Image Column */}
-                                        <div 
-                                            className="presentation-slide-image-box" 
-                                            style={{
-                                                flex: 1,
-                                                display: 'flex',
-                                                justifyContent: 'center',
-                                                alignItems: 'center',
-                                                overflow: 'hidden',
-                                                background: '#f8fafc',
-                                                border: '1px solid #f1f5f9',
-                                                borderRadius: '6px'
-                                            }}
-                                            title="Clique em qualquer lugar da imagem para adicionar um post-it"
-                                        >
+                                        <div className="presentation-slide-image-wrapper" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px', minWidth: 0 }}>
+                                            <div 
+                                                className="presentation-slide-image-box" 
+                                                style={{
+                                                    flex: 1,
+                                                    display: 'flex',
+                                                    justifyContent: 'center',
+                                                    alignItems: 'center',
+                                                    overflow: 'hidden',
+                                                    background: '#f8fafc',
+                                                    border: '1px solid #f1f5f9',
+                                                    borderRadius: '6px',
+                                                    minHeight: 0
+                                                }}
+                                                title="Clique em qualquer lugar da imagem para adicionar um post-it"
+                                            >
                                             <div 
                                                 style={{ position: 'relative', display: 'inline-block', cursor: 'crosshair' }} 
                                                 onClick={(e) => handleImageClick(e, item.id, img.url)}
@@ -1513,6 +1524,44 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                                 </React.Fragment>
                                                 ))}
                                             </div>
+                                        </div>
+                                            
+                                        {/* Materiais e Acessórios (MDF, Ferragens, Vidros) */}
+                                        {(() => {
+                                                const rawProducts = (item.products || []).filter(p => 
+                                                    (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
+                                                );
+                                                
+                                                const uniqueProductsMap = new Map();
+                                                rawProducts.forEach(p => {
+                                                    if (p.product && !uniqueProductsMap.has(p.product.id)) {
+                                                        uniqueProductsMap.set(p.product.id, p);
+                                                    }
+                                                });
+                                                const displayProducts = Array.from(uniqueProductsMap.values());
+                                                
+                                                if (displayProducts.length === 0) return null;
+
+                                                return (
+                                                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '10px', marginTop: 'auto' }}>
+                                                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#10b981', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                                            Materiais e Acessórios:
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                            {displayProducts.map((hp, hIdx) => (
+                                                                <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <img 
+                                                                        src={hp.product.photo} 
+                                                                        alt={hp.product.name} 
+                                                                        title={hp.product.name}
+                                                                        style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} 
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 

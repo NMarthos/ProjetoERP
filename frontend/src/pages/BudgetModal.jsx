@@ -1302,7 +1302,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                         <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
                             {!activeItem ? <p style={{padding: '20px', textAlign: 'center', color:'var(--text-muted)'}}>Selecione um item acima</p> :
                              activeItem.products.length === 0 ? <p style={{padding: '20px', textAlign: 'center', color:'var(--text-muted)', fontSize:'0.85rem'}}>Nenhum produto adicionado neste item.</p> :
-                             activeItem.products.map(sp => (
+                             [...activeItem.products].sort((a, b) => a.product.name.localeCompare(b.product.name)).map(sp => (
                                 <div key={sp.product.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderBottom: '1px solid var(--border)' }}>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{sp.product.name}</div>
@@ -1898,6 +1898,43 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                             </div>
                                                                         );
                                                                     })()}
+                                                                    
+                                                                    {/* Materiais e Acessórios (MDF, Ferragens, Vidros) */}
+                                                                    {(() => {
+                                                                        const rawProducts = (item.products || []).filter(p => 
+                                                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
+                                                                        );
+                                                                        
+                                                                        const uniqueProductsMap = new Map();
+                                                                        rawProducts.forEach(p => {
+                                                                            if (p.product && !uniqueProductsMap.has(p.product.id)) {
+                                                                                uniqueProductsMap.set(p.product.id, p);
+                                                                            }
+                                                                        });
+                                                                        const displayProducts = Array.from(uniqueProductsMap.values());
+                                                                        
+                                                                        if (displayProducts.length === 0) return null;
+
+                                                                        return (
+                                                                            <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '10px', marginTop: '15px' }}>
+                                                                                <div style={{ fontSize: '10px', fontWeight: '800', color: '#6366f1', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                                                                    Materiais e Acessórios Utilizados:
+                                                                                </div>
+                                                                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                                                    {displayProducts.map((hp, hIdx) => (
+                                                                                        <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                                            <img 
+                                                                                                src={hp.product.photo} 
+                                                                                                alt={hp.product.name} 
+                                                                                                title={hp.product.name}
+                                                                                                style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} 
+                                                                                            />
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                             </td>
                                                             <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', verticalAlign: 'top', fontSize: '16px', color: '#1e293b' }}>
@@ -1997,30 +2034,9 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     {/* FOOTER */}
                                     <div style={{ marginTop: '40px', pageBreakInside: 'avoid' }}>
                                         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '30px', padding: '25px', background: '#f1f5f9', borderRadius: '12px' }}>
-                                            <div style={{ textAlign: 'right', borderRight: '1px solid #cbd5e1', paddingRight: '30px' }}>
-                                                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Prazos de Produção</div>
-                                                <div style={{ display: 'flex', gap: '15px', marginTop: '4px' }}>
-                                                    <div style={{ fontSize: '14px', color: '#1e293b' }}>
-                                                         Fabricação: <strong>{
-                                                             budgetItems.reduce((acc, item) => acc + item.products.reduce((acc2, p) => {
-                                                                 const unit = p.product.unit?.toUpperCase();
-                                                                 if (unit === 'DF') return acc2 + p.quantity;
-                                                                 if (unit === 'DIA' && !p.product.name.toLowerCase().includes('montagem')) return acc2 + p.quantity;
-                                                                 return acc2;
-                                                             }, 0), 0)
-                                                         } dias</strong>
-                                                         <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal', marginTop: '4px', fontStyle: 'italic' }}>
-                                                             Obs: Entrega condicionada ao pagamento e fluxo de produção
-                                                         </div>
-                                                    </div>
-                                                    <div style={{ fontSize: '14px', color: '#1e293b' }}>Instalação: <strong>{
-                                                        budgetItems.reduce((acc, item) => acc + item.products.reduce((acc2, p) => {
-                                                            const unit = p.product.unit?.toUpperCase();
-                                                            if (unit === 'DM') return acc2 + p.quantity;
-                                                            if (unit === 'DIA' && p.product.name.toLowerCase().includes('montagem')) return acc2 + p.quantity;
-                                                            return acc2;
-                                                        }, 0), 0)
-                                                    } dias</strong></div>
+                                            <div style={{ textAlign: 'right', borderRight: '1px solid #cbd5e1', paddingRight: '30px', display: 'flex', alignItems: 'center' }}>
+                                                <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 'bold' }}>
+                                                    Prazo de entrega: <span style={{ color: '#10b981' }}>Em até 30 dias úteis</span>
                                                 </div>
                                             </div>
                                             <div style={{ textAlign: 'right' }}>

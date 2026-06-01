@@ -1038,6 +1038,41 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                     {item.description && (
                                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{item.description}</div>
                                     )}
+                                    {(() => {
+                                        const rawProducts = (item.products || []).filter(p => 
+                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
+                                        );
+                                        
+                                        const uniqueProductsMap = new Map();
+                                        rawProducts.forEach(p => {
+                                            if (p.product && !uniqueProductsMap.has(p.product.id)) {
+                                                uniqueProductsMap.set(p.product.id, p);
+                                            }
+                                        });
+                                        const displayProducts = Array.from(uniqueProductsMap.values());
+                                        
+                                        if (displayProducts.length === 0) return null;
+
+                                        return (
+                                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                                    Materiais e Acessórios:
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    {displayProducts.map((hp, hIdx) => (
+                                                        <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                                            <img 
+                                                                src={hp.product.photo} 
+                                                                alt={hp.product.name} 
+                                                                title={hp.product.name}
+                                                                style={{ width: '28px', height: '28px', objectFit: 'cover', borderRadius: '4px' }} 
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             ))}
                         </div>

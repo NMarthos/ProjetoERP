@@ -264,6 +264,7 @@ const Products = () => {
     const [manufacturers, setManufacturers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [searchGroup, setSearchGroup] = useState('');
     const [modal, setModal] = useState({ show: false, type: '', data: null });
 
     const fetchData = async () => {
@@ -286,7 +287,11 @@ const Products = () => {
         } catch (e) { alert('Erro ao excluir'); }
     };
 
-    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    const filteredProducts = products.filter(p => {
+        const matchName = p.name.toLowerCase().includes(search.toLowerCase());
+        const matchGroup = searchGroup ? p.group_name === searchGroup : true;
+        return matchName && matchGroup;
+    });
     const filteredManufacturers = manufacturers.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
 
     return (
@@ -324,9 +329,23 @@ const Products = () => {
             </div>
 
             <div className="glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
-                <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-                    <Search size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
-                    <input placeholder="Buscar por nome..." style={{ paddingLeft: '40px' }} value={search} onChange={e => setSearch(e.target.value)} />
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                        <Search size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
+                        <input placeholder="Buscar por nome..." style={{ paddingLeft: '40px', width: '100%' }} value={search} onChange={e => setSearch(e.target.value)} />
+                    </div>
+                    {activeTab === 'products' && (
+                        <select 
+                            value={searchGroup} 
+                            onChange={e => setSearchGroup(e.target.value)}
+                            style={{ width: '220px', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', outline: 'none' }}
+                        >
+                            <option value="">Todos os Grupos</option>
+                            {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
+                                <option key={g} value={g}>{g}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
 
                 {activeTab === 'products' ? (
