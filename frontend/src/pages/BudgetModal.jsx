@@ -1931,30 +1931,19 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
                                                     {(() => {
-                                                        // Max finance cost across ALL conditions → used for à vista discount
-                                                        const maxFinancePct = Math.max(
-                                                            0,
-                                                            ...activeMethod.conditions.map(c => c.finance_cost_percentage || 0)
-                                                        );
-                                                        // Discount for à vista = 70% of the max finance cost
-                                                        const aVistaExtraDiscountPct = parseFloat((maxFinancePct * 0.70).toFixed(2));
-
                                                         return activeMethod.conditions.map((cond, idx) => {
                                                             const total        = budgetTotal;
-                                                            const installments = cond.installments || 1;
-                                                            const isAVista     = installments === 1;
+                                                            const installments = cond.installments !== undefined ? Number(cond.installments) : 1;
+                                                            const isAVista     = installments === 0;
 
-                                                            // For à vista: apply the automatic extra discount on top of any existing discount
-                                                            const totalDiscountPct    = isAVista
-                                                                ? (cond.discount_percentage || 0) + aVistaExtraDiscountPct
-                                                                : (cond.discount_percentage || 0);
+                                                            const totalDiscountPct    = cond.discount_percentage || 0;
 
                                                             const discountedTotal  = total * (1 - totalDiscountPct / 100);
                                                             const financedTotal    = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
                                                             const downPct          = cond.down_payment_percentage || 0;
                                                             const downValue        = financedTotal * (downPct / 100);
                                                             const remaining        = financedTotal - downValue;
-                                                            const installAmt       = installments > 1
+                                                            const installAmt       = installments > 0
                                                                 ? remaining / installments
                                                                 : financedTotal;
 
@@ -1970,7 +1959,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                 }}>
                                                                     {/* Card title: Opção 1, Opção 2, ... */}
                                                                     <div style={{ fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                                                                        Opção {idx + 1}
+                                                                        Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
                                                                     </div>
 
                                                                     {/* Main descriptive text — reflects exactly what's configured */}
@@ -1989,9 +1978,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
                                                                     {/* Discount percentage — shown below the payment text when > 0 */}
                                                                     {(() => {
-                                                                        const discPct = isAVista
-                                                                            ? (cond.discount_percentage || 0) + aVistaExtraDiscountPct
-                                                                            : (cond.discount_percentage || 0);
+                                                                        const discPct = cond.discount_percentage || 0;
                                                                         return discPct > 0 ? (
                                                                             <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
                                                                                 Desconto: {discPct.toFixed(2)}%

@@ -189,21 +189,22 @@ const PublicPresentationView = () => {
     const conditions = activeMethod?.conditions || [];
 
     const calcCondition = (cond) => {
-        const installments = cond.installments || 1;
-        const isAVista = installments === 1;
+        const installments = cond.installments !== undefined ? Number(cond.installments) : 1;
+        const isAVista = installments === 0;
         const totalDiscountPct = cond.discount_percentage || 0;
         const discountedTotal = grandTotal * (1 - totalDiscountPct / 100);
         const financedTotal   = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
         const downPct         = cond.down_payment_percentage || 0;
         const downValue       = financedTotal * (downPct / 100);
         const remaining       = financedTotal - downValue;
-        const installAmt      = installments > 1 ? remaining / installments : financedTotal;
+        const installAmt      = installments > 0 ? remaining / installments : financedTotal;
         return { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt };
     };
 
     const handleSelectCondition = (cond, idx) => {
         const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
-        let text = `Opção ${idx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        const titleStr = cond.title ? ` - ${cond.title}` : '';
+        let text = `Opção ${idx + 1}${titleStr}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
         if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
         text += `• Total: ${maskCurrency(financedTotal)}\n`;
         if (isAVista) {
@@ -494,7 +495,7 @@ const PublicPresentationView = () => {
                                     {/* Thumbnails under the image container */}
                                     {(() => {
                                         const rawProducts = (slide.item.products || []).filter(p => 
-                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs') && p.product?.photo
+                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
                                         );
                                         
                                         // Deduplicate by product ID so we only show 1 image of each MDF or Hardware
@@ -608,7 +609,7 @@ const PublicPresentationView = () => {
                                                 }}
                                             >
                                                 <div style={{ fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', marginBottom: '10px', letterSpacing: '0.5px' }}>
-                                                    Opção {idx + 1}
+                                                    Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
                                                 </div>
                                                 <div style={{ fontSize: '16px', fontWeight: '800', color: isSelected ? '#10b981' : '#0f172a', borderTop: '1px solid #e2e8f0', paddingTop: '10px', lineHeight: '1.6' }}>
                                                     {isAVista ? (

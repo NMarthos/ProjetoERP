@@ -1027,7 +1027,7 @@ async function start() {
             try {
                 const result = await db.run(
                     'INSERT INTO payment_conditions (tenant_id, payment_method_id, title, discount_percentage, finance_cost_percentage, installments, down_payment_percentage) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [req.tenantId, payment_method_id, title, discount_percentage || 0, finance_cost_percentage || 0, installments || 1, down_payment_percentage || 0]
+                    [req.tenantId, payment_method_id, title, discount_percentage || 0, finance_cost_percentage || 0, installments !== undefined ? installments : 1, down_payment_percentage || 0]
                 );
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
@@ -1040,7 +1040,7 @@ async function start() {
             try {
                 await db.run(
                     'UPDATE payment_conditions SET title=?, discount_percentage=?, finance_cost_percentage=?, installments=?, down_payment_percentage=? WHERE id=? AND tenant_id=?',
-                    [title, discount_percentage, finance_cost_percentage || 0, installments, down_payment_percentage, req.params.id, req.tenantId]
+                    [title, discount_percentage, finance_cost_percentage || 0, installments !== undefined ? installments : 1, down_payment_percentage, req.params.id, req.tenantId]
                 );
                 res.json({ ok: true });
             } catch (err) {

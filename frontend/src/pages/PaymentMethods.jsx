@@ -342,9 +342,10 @@ const PaymentMethods = () => {
                                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600' }}><Hash size={14}/> Parcelas</label>
                                     <input 
                                         type="number"
+                                        min="0"
                                         className="input-field"
                                         value={conditionForm.installments}
-                                        onChange={e => setConditionForm(f => ({ ...f, installments: parseInt(e.target.value) || 1 }))}
+                                        onChange={e => setConditionForm(f => ({ ...f, installments: e.target.value === '' ? 0 : parseInt(e.target.value, 10) }))}
                                     />
                                 </div>
                                 <div>

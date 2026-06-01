@@ -835,15 +835,15 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     const activeMethod = [...availableMethods].sort((a, b) => a.id - b.id).slice(-1)[0];
 
     const calcCondition = (cond) => {
-        const installments = cond.installments || 1;
-        const isAVista = installments === 1;
+        const installments = cond.installments !== undefined ? Number(cond.installments) : 1;
+        const isAVista = installments === 0;
         const totalDiscountPct = cond.discount_percentage || 0;
         const discountedTotal = grandTotal * (1 - totalDiscountPct / 100);
         const financedTotal   = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
         const downPct         = cond.down_payment_percentage || 0;
         const downValue       = financedTotal * (downPct / 100);
         const remaining       = financedTotal - downValue;
-        const installAmt      = installments > 1 ? remaining / installments : financedTotal;
+        const installAmt      = installments > 0 ? remaining / installments : financedTotal;
         return { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt };
     };
 
@@ -869,7 +869,8 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
 
     const handleSelectCondition = (cond, idx) => {
         const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
-        let text = `Opção ${idx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        const titleStr = cond.title ? ` - ${cond.title}` : '';
+        let text = `Opção ${idx + 1}${titleStr}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
         if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
         text += `• Total: ${maskCurrency(financedTotal)}\n`;
         if (isAVista) {
@@ -900,7 +901,8 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         
         const updatedCond = updated[selectedCondIdx];
         const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(updatedCond);
-        let text = `Opção ${selectedCondIdx + 1}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
+        const titleStr = updatedCond.title ? ` - ${updatedCond.title}` : '';
+        let text = `Opção ${selectedCondIdx + 1}${titleStr}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
         if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
         text += `• Total: ${maskCurrency(financedTotal)}\n`;
         if (isAVista) {
@@ -1132,7 +1134,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                                 onMouseLeave={e => e.currentTarget.style.borderColor = isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)')}
                                             >
                                                 <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.5px' }}>
-                                                    Opção {idx + 1}
+                                                    Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
                                                 </div>
                                                 <div style={{ fontSize: '13px', fontWeight: '900', color: isSelected ? 'var(--primary)' : (isAVista ? '#16a34a' : 'white'), borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
                                                     {isAVista ? (
@@ -1175,10 +1177,10 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                                 <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Parcelas</label>
                                                 <input
                                                     type="number"
-                                                    min="1"
+                                                    min="0"
                                                     max="120"
-                                                    value={conditions[selectedCondIdx]?.installments || 1}
-                                                    onChange={e => handleUpdateConditionField('installments', parseInt(e.target.value) || 1)}
+                                                    value={conditions[selectedCondIdx]?.installments ?? 0}
+                                                    onChange={e => handleUpdateConditionField('installments', e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
                                                     style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
                                                 />
                                             </div>
