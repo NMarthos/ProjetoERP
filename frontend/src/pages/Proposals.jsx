@@ -787,8 +787,16 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         });
         setSelectedCondIdx(null);
         setFluxoRows([]);
-        // Fetch fresh settings (aligned with BudgetModal)
-        api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
+        let snap = null;
+        if (proposal.pricing_snapshot) {
+            try { snap = JSON.parse(proposal.pricing_snapshot); } catch(e) {}
+        }
+        
+        if (snap && typeof snap === 'object') {
+            setLiveSettings(snap);
+        } else {
+            api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
+        }
         api.get('/payment-methods')
             .then(r => {
                 const methods = r.data.filter(m => m.active);

@@ -22,10 +22,10 @@ const predictGroup = (name, unit) => {
 const GROUP_SEQUENCE = [
     { key: 'MDFs', label: 'MDFs', icon: Layers },
     { key: 'Fitas', label: 'Fitas', icon: Scissors },
+    { key: 'Químicos', label: 'Químicos', icon: Droplet },
     { key: 'Ferragens', label: 'Ferragens', icon: Wrench },
     { key: 'Componentes', label: 'Componentes', icon: Package },
     { key: 'Vidros', label: 'Vidros', icon: Paintbrush },
-    { key: 'Químicos', label: 'Químicos', icon: Droplet },
     { key: 'Outros', label: 'Outros', icon: HelpCircle },
     { key: 'Serviços', label: 'Serviços', icon: Briefcase }
 ];
@@ -58,6 +58,10 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     const [showProductModal, setShowProductModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null); // null = create, object = edit
     const [newProduct, setNewProduct] = useState({ name: '', unit: 'UN', value: 0, manufacturer_id: '', photo: '', status: 1, group_name: 'Outros' });
+
+    // Pricing snapshot state
+    const [hasOutdatedParams, setHasOutdatedParams] = useState(false);
+    const [globalParams, setGlobalParams] = useState(null);
     const [newProductDisplayValue, setNewProductDisplayValue] = useState('0,00');
     const [newProductUploading, setNewProductUploading] = useState(false);
     const [newProductSaving, setNewProductSaving] = useState(false);
@@ -132,46 +136,40 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         api.get('/settings')
             .then(res => {
                 const fresh = res.data;
-                setLiveSettings(fresh);
-                // Immediately override snapshot with current live params
                 const freshParams = {
                     commission:  parseFloat((proposal.referrer_commission || 0).toFixed(4)),
                     taxes:       parseFloat((fresh?.taxes       || 0).toFixed(4)),
                     financeCost: parseFloat((fresh?.financeCost || 0).toFixed(4)),
                     markup:      parseFloat((fresh?.markup      || 0).toFixed(4)),
                 };
-                setPricingSnapshot(freshParams);
-                console.log('[BudgetModal] Parâmetros de precificação atualizados:', freshParams);
+                
+                let currentParams = freshParams;
+                let snapshot = null;
+                try {
+                    if (proposal.pricing_snapshot) {
+                        snapshot = JSON.parse(proposal.pricing_snapshot);
+                    }
+                } catch(e) {}
+                
+                if (snapshot && typeof snapshot === 'object') {
+                    // check if they differ
+                    const hasDiff = 
+                        snapshot.taxes !== freshParams.taxes ||
+                        snapshot.financeCost !== freshParams.financeCost ||
+                        snapshot.markup !== freshParams.markup ||
+                        snapshot.commission !== freshParams.commission;
 
-                // Auto-sync if the new params change the budget total significantly
-                // Wait a moment for budgetItems to load if they are loading concurrently
-                setTimeout(() => {
-                    setBudgetItems(currentItems => {
-                        if (currentItems && currentItems.length > 0) {
-                            const newTotal = currentItems.reduce((acc, item) => {
-                                const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
-                                const comm        = freshParams.commission  / 100;
-                                const taxes       = freshParams.taxes       / 100;
-                                const financeCost = freshParams.financeCost / 100;
-                                const markup      = freshParams.markup      / 100;
-                                const denominator = 1 - (comm + taxes + financeCost + markup);
-                                const finalPrice  = denominator <= 0 ? itemCost : itemCost / denominator;
-                                return acc + finalPrice;
-                            }, 0);
+                    if (hasDiff) {
+                        setHasOutdatedParams(true);
+                    }
+                    currentParams = snapshot;
+                }
 
-                            if (Math.abs(newTotal - (proposal.value || 0)) > 1) {
-                                console.log('[BudgetModal] Auto-syncing updated price to DB:', newTotal);
-                                api.put(`/proposals/${proposal.id}`, {
-                                    budget_data: JSON.stringify(currentItems),
-                                    pricing_snapshot: JSON.stringify(freshParams),
-                                    value: newTotal
-                                }).catch(() => {});
-                                proposal.value = newTotal;
-                            }
-                        }
-                        return currentItems;
-                    });
-                }, 1000);
+                setGlobalParams(freshParams);
+                setLiveSettings(fresh);
+                setPricingSnapshot(currentParams);
+                
+                console.log('[BudgetModal] Parâmetros de precificação utilizados:', currentParams);
             })
             .catch(() => {
                 // Fallback: use prop settings if API fails
@@ -289,6 +287,35 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         return cost / denominator;
     };
 
+    const suggestedEdgeBands = (() => {
+        if (!activeItem) return [];
+        
+        // Pega todos os produtos do item ativo que são do grupo MDFs
+        const mdfs = activeItem.products.filter(sp => sp.product.group_name === 'MDFs');
+        
+        if (mdfs.length === 0) return [];
+
+        const baseNames = mdfs.map(sp => {
+            let name = sp.product.name.toUpperCase();
+            // Remove prefixos comuns
+            name = name.replace(/^(MDF|CHAPA)\s*/, '').trim();
+            // Remove espessuras do final (ex: 15mm, 15 mm, 18MM)
+            name = name.replace(/\s*\d+\s*MM$/, '').trim();
+            return name.toLowerCase();
+        });
+
+        return products.filter(p => {
+            const isSelected = activeItem.products.some(sp => sp.product.id === p.id);
+            if (isSelected) return false;
+
+            // Só considera fitas
+            if (p.group_name !== 'Fitas') return false;
+
+            const nameLower = p.name.toLowerCase();
+            return baseNames.some(base => base.length > 2 && nameLower.includes(base));
+        });
+    })();
+
     const availableProducts = products.filter(p => {
         if (!activeItem) return false;
         const isSelected = activeItem.products.some(sp => sp.product.id === p.id);
@@ -299,36 +326,16 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         if (pGroup !== selectedGroup) return false;
         
         if (search) {
-            return p.name.toLowerCase().includes(search.toLowerCase());
+            if (!p.name.toLowerCase().includes(search.toLowerCase())) return false;
         }
+
+        // Se o grupo selecionado for Fitas, filtra apenas as sugeridas
+        if (selectedGroup === 'Fitas') {
+            return suggestedEdgeBands.some(sugg => sugg.id === p.id);
+        }
+
         return true;
     });
-
-    const suggestedEdgeBands = (() => {
-        if (!activeItem) return [];
-        const mdfs = activeItem.products.filter(sp => {
-            const name = sp.product.name.toUpperCase();
-            return name.startsWith('MDF');
-        });
-        if (mdfs.length === 0) return [];
-
-        const baseNames = mdfs.map(sp => {
-            let name = sp.product.name;
-            name = name.replace(/^(mdf|MDF)\s*/, '').trim();
-            name = name.replace(/\s*\d+mm$/i, '').trim();
-            return name.toLowerCase();
-        });
-
-        return products.filter(p => {
-            const isSelected = activeItem.products.some(sp => sp.product.id === p.id);
-            if (isSelected) return false;
-
-            const nameLower = p.name.toLowerCase();
-            if (!nameLower.startsWith('fb')) return false;
-
-            return baseNames.some(base => nameLower.includes(base));
-        });
-    })();
 
     const handleAddProduct = (product) => {
         if (!activeItem) return;
@@ -435,9 +442,9 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
     }, 0);
 
     const persistBudget = async (items) => {
-        // Snapshot current pricing params at proposal level
-        const currentParams = getPricingParams();
-        setPricingSnapshot(currentParams); // Update local state too
+        // Use the active pricing snapshot, don't silently overwrite it with live settings
+        const currentParams = activePricingParams;
+
 
         // Keep local proposal.value in sync so we don't spam API
         proposal.value = items.reduce((acc, item) => {
@@ -635,6 +642,60 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '1400px', width: '98vw', height: '90vh', display: 'flex', flexDirection: 'column', padding: '1.5rem', position: 'relative' }}>
                 
+                {hasOutdatedParams && (
+                    <div style={{ padding: '10px 24px', background: 'rgba(234,179,8,0.1)', borderBottom: '1px solid rgba(234,179,8,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#eab308', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                            <AlertCircle size={18} /> Os parâmetros de preço da empresa (Impostos, Lucro, etc.) mudaram. Esta proposta está usando o preço antigo.
+                        </span>
+                        <button onClick={async () => {
+                            if (window.confirm("Isso irá recalcular os preços de todos os itens do orçamento para os parâmetros atuais da empresa. Deseja continuar?")) {
+                                setPricingSnapshot(globalParams);
+                                setHasOutdatedParams(false);
+                                
+                                try {
+                                    const itemsToSave = [...budgetItems];
+                                    let totalFab = 0; let totalAss = 0;
+                                    itemsToSave.forEach(item => {
+                                        item.products.forEach(p => {
+                                            const unit = p.product.unit?.toUpperCase();
+                                            if (unit === 'DF') totalFab += p.quantity;
+                                            else if (unit === 'DM') totalAss += p.quantity;
+                                            else if (unit === 'DIA') {
+                                                if (p.product.name.toLowerCase().includes('montagem')) totalAss += p.quantity;
+                                                else totalFab += p.quantity;
+                                            }
+                                        });
+                                    });
+                                    const totalValue = itemsToSave.reduce((acc, item) => {
+                                        const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
+                                        const comm = globalParams.commission / 100;
+                                        const taxes = globalParams.taxes / 100;
+                                        const financeCost = globalParams.financeCost / 100;
+                                        const markup = globalParams.markup / 100;
+                                        const denominator = 1 - (comm + taxes + financeCost + markup);
+                                        return acc + (denominator <= 0 ? itemCost : itemCost / denominator);
+                                    }, 0);
+                                    
+                                    await api.put(`/proposals/${proposal.id}`, {
+                                        budget_data: JSON.stringify(itemsToSave),
+                                        pricing_snapshot: JSON.stringify(globalParams),
+                                        value: totalValue,
+                                        fabrication_days: totalFab,
+                                        assembly_days: totalAss
+                                    });
+                                    proposal.value = totalValue;
+                                } catch (e) {
+                                    console.error('Failed to update pricing snapshot:', e);
+                                }
+                            }
+                        }} style={{ background: '#eab308', color: '#000', padding: '6px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            Atualizar Preços
+                        </button>
+                    </div>
+                )}
+                
+                {/* HEADER */}
+                
                 {/* CREATE / EDIT ITEM MINI-MODAL */}
                 {showCreateModal && (
                     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '24px' }}>
@@ -780,7 +841,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     <div>
                                         <label>Grupo / Categoria *</label>
                                         <select value={newProduct.group_name} onChange={e => setNewProduct(p => ({ ...p, group_name: e.target.value }))}>
-                                            {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
+                                            {['MDFs', 'Fitas', 'Químicos', 'Ferragens', 'Componentes', 'Vidros', 'Outros', 'Serviços'].map(g => (
                                                 <option key={g} value={g}>{g}</option>
                                             ))}
                                         </select>
@@ -2045,7 +2106,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             </div>
                                         </div>
                                         
-                                        <div style={{ marginTop: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ marginTop: '24px', textAlign: 'center' }}>
                                             <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: '600' }}>Validade da proposta: 10 dias corridos.</span>
                                         </div>
 

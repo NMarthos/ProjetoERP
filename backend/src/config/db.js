@@ -319,17 +319,9 @@ async function initializeDatabase(db) {
         }
     }
 
-    // Migração de dados: Ajustar os grupos de produtos antigos para os novos grupos
-    try {
-        await db.run("UPDATE products SET group_name = 'Fita' WHERE group_name = 'Fita de borda'");
-        await db.run("UPDATE products SET group_name = 'Servico' WHERE group_name = 'Serviço'");
-        await db.run("UPDATE products SET group_name = 'Ferragem' WHERE group_name IN ('Componente de montagem', 'Ferragens')");
-        await db.run("UPDATE products SET group_name = 'Quimicos' WHERE group_name = 'Colas'");
-        await db.run("UPDATE products SET group_name = 'Outros' WHERE group_name = 'Vidros'");
-        console.log('[MIGRAÇÃO] Grupos de produtos atualizados para os novos nomes com sucesso.');
-    } catch (e) {
-        console.error('[MIGRAÇÃO] Erro ao migrar grupos de produtos:', e.message);
-    }
+    // Migração de dados: Ajustar os grupos de produtos antigos para os novos grupos (REMOVIDO)
+    // As atualizações destrutivas de nomes de grupos rodavam a cada inicialização,
+    // revertendo alterações feitas pelo usuário na interface.
 
     // Event Attachments Table
     await db.exec(`

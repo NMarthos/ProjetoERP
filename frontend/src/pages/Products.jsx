@@ -214,7 +214,7 @@ const ProductModal = ({ product, manufacturers, onClose, onSave }) => {
                         <div>
                             <label>Grupo / Categoria *</label>
                             <select value={form.group_name} onChange={e => setForm({...form, group_name: e.target.value})}>
-                                {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
+                                {['MDFs', 'Fitas', 'Químicos', 'Ferragens', 'Componentes', 'Vidros', 'Outros', 'Serviços'].map(g => (
                                     <option key={g} value={g}>{g}</option>
                                 ))}
                             </select>
@@ -341,7 +341,7 @@ const Products = () => {
                             style={{ width: '220px', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', outline: 'none' }}
                         >
                             <option value="">Todos os Grupos</option>
-                            {['MDFs', 'Fitas', 'Ferragens', 'Componentes', 'Vidros', 'Químicos', 'Outros', 'Serviços'].map(g => (
+                            {['MDFs', 'Fitas', 'Químicos', 'Ferragens', 'Componentes', 'Vidros', 'Outros', 'Serviços'].map(g => (
                                 <option key={g} value={g}>{g}</option>
                             ))}
                         </select>
