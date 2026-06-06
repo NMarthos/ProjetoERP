@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle } from 'lucide-react';
+import { Plus, Search, FileSearch, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 import { PartnerModal } from './Partners';
@@ -1571,7 +1571,7 @@ const Proposals = ({ user }) => {
 
             <div className="glass card" style={{ marginBottom: '2rem', padding: '1rem', display: 'flex', gap: '1rem' }}>
                 <div style={{ flex: 1, position: 'relative' }}>
-                    <Search style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
+                    <FileSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
                     <input 
                         type="text" 
                         placeholder="Buscar por cliente, descrição ou número..." 
@@ -1621,15 +1621,16 @@ const Proposals = ({ user }) => {
                                 <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)' }}>
                                     <th style={{ padding: '1.25rem' }}>ID</th>
                                     <th>Parceiro / Cliente</th>
-                                    <th>Descrição / Projeto</th>
+                                    <th>Criado em</th>
                                     <th>Status</th>
+                                    <th>Data da Fase</th>
                                     <th>Valor</th>
                                     <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.length === 0 ? (
-                                    <tr><td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
+                                    <tr><td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
                                 ) : (
                                     filtered.map(p => {
                                         const cfg = statusConfig[p.status] || statusConfig.ABERTO;
@@ -1642,11 +1643,16 @@ const Proposals = ({ user }) => {
                                                     <div style={{ fontWeight: '600' }}>{p.partner_name}</div>
                                                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.partner_phone}</div>
                                                 </td>
-                                                <td>{p.description}</td>
+                                                <td style={{ fontSize: '0.85rem' }}>
+                                                    {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                                                </td>
                                                 <td>
                                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: `${cfg.color}15`, color: cfg.color, fontSize: '0.75rem', fontWeight: '700' }}>
                                                         {cfg.icon} {cfg.label || p.status}
                                                     </span>
+                                                </td>
+                                                <td style={{ fontSize: '0.85rem' }}>
+                                                    {p.phase_date ? new Date(p.phase_date).toLocaleDateString('pt-BR') : '-'}
                                                 </td>
                                                 <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>

@@ -430,13 +430,10 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
 
     const handlePrint = () => {
         const oldTitle = document.title;
-        const proposalNum = String(proposal.id).padStart(4, '0');
         const clientName = proposal.partner_name || '';
         const now = new Date();
         const dateStr = now.toLocaleDateString('pt-BR').replace(/\//g, '-');
-        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(/:/g, '-');
-        const version = `${dateStr}_${timeStr}`;
-        document.title = `Apresentacao_${proposalNum}_v${version}-${clientName}`;
+        document.title = `APRESENTACAO_${proposal.id}-${dateStr}_${clientName}`;
         
         window.print();
         document.title = oldTitle;

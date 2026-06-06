@@ -529,17 +529,17 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
     const handlePrint = () => {
         const oldTitle = document.title;
+        const proposalNum = String(proposal.id).padStart(4, '0');
+        const clientName = proposal.partner_name || '';
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('pt-BR').replace(/\//g, '-');
+        
         if (printType === 'PRESENTATION') {
-            const proposalNum = String(proposal.id).padStart(4, '0');
-            const clientName = proposal.partner_name || '';
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('pt-BR').replace(/\//g, '-');
-            const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(/:/g, '-');
-            const version = `${dateStr}_${timeStr}`;
-            document.title = `Apresentacao_${proposalNum}_v${version}-${clientName}`;
+            document.title = `APRESENTACAO_${proposal.id}-${dateStr}_${clientName}`;
+        } else if (printType === 'PROPOSAL') {
+            document.title = `PROPOSTA_${proposal.id}-${dateStr}_${clientName}`;
         } else {
-            const prefix = printType === 'PROPOSAL' ? 'Proposta' : 'Lista Materiais';
-            document.title = `${prefix} ${String(proposal.id).padStart(4, '0')}`;
+            document.title = `Lista Materiais ${proposalNum}`;
         }
         window.print();
         document.title = oldTitle;
@@ -642,57 +642,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
         <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '1400px', width: '98vw', height: '90vh', display: 'flex', flexDirection: 'column', padding: '1.5rem', position: 'relative' }}>
                 
-                {hasOutdatedParams && (
-                    <div style={{ padding: '10px 24px', background: 'rgba(234,179,8,0.1)', borderBottom: '1px solid rgba(234,179,8,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#eab308', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
-                            <AlertCircle size={18} /> Os parâmetros de preço da empresa (Impostos, Lucro, etc.) mudaram. Esta proposta está usando o preço antigo.
-                        </span>
-                        <button onClick={async () => {
-                            if (window.confirm("Isso irá recalcular os preços de todos os itens do orçamento para os parâmetros atuais da empresa. Deseja continuar?")) {
-                                setPricingSnapshot(globalParams);
-                                setHasOutdatedParams(false);
-                                
-                                try {
-                                    const itemsToSave = [...budgetItems];
-                                    let totalFab = 0; let totalAss = 0;
-                                    itemsToSave.forEach(item => {
-                                        item.products.forEach(p => {
-                                            const unit = p.product.unit?.toUpperCase();
-                                            if (unit === 'DF') totalFab += p.quantity;
-                                            else if (unit === 'DM') totalAss += p.quantity;
-                                            else if (unit === 'DIA') {
-                                                if (p.product.name.toLowerCase().includes('montagem')) totalAss += p.quantity;
-                                                else totalFab += p.quantity;
-                                            }
-                                        });
-                                    });
-                                    const totalValue = itemsToSave.reduce((acc, item) => {
-                                        const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
-                                        const comm = globalParams.commission / 100;
-                                        const taxes = globalParams.taxes / 100;
-                                        const financeCost = globalParams.financeCost / 100;
-                                        const markup = globalParams.markup / 100;
-                                        const denominator = 1 - (comm + taxes + financeCost + markup);
-                                        return acc + (denominator <= 0 ? itemCost : itemCost / denominator);
-                                    }, 0);
-                                    
-                                    await api.put(`/proposals/${proposal.id}`, {
-                                        budget_data: JSON.stringify(itemsToSave),
-                                        pricing_snapshot: JSON.stringify(globalParams),
-                                        value: totalValue,
-                                        fabrication_days: totalFab,
-                                        assembly_days: totalAss
-                                    });
-                                    proposal.value = totalValue;
-                                } catch (e) {
-                                    console.error('Failed to update pricing snapshot:', e);
-                                }
-                            }
-                        }} style={{ background: '#eab308', color: '#000', padding: '6px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            Atualizar Preços
-                        </button>
-                    </div>
-                )}
+
                 
                 {/* HEADER */}
                 
@@ -968,10 +918,14 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                 fontSize: '1.2rem', fontWeight: 'bold', color: '#10b981',
                                 cursor: isAdm ? 'help' : 'default',
                                 borderBottom: isAdm ? '1px dashed #10b981' : 'none',
-                                paddingBottom: '1px'
+                                paddingBottom: '1px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
                             }}>
                                 Total: {maskCurrency(budgetTotal)}
-                                {isAdm && <span style={{ fontSize: '0.6rem', color: '#64748b', marginLeft: '6px', verticalAlign: 'middle' }}>ADM ▸</span>}
+                                {hasOutdatedParams && <AlertCircle size={18} color="#eab308" title="Parâmetros de preço desatualizados. Abra a formação de preço para atualizar." />}
+                                {isAdm && <span style={{ fontSize: '0.6rem', color: '#64748b', verticalAlign: 'middle' }}>ADM ▸</span>}
                             </div>
 
                             {showPriceTooltip && isAdm && (() => {
@@ -993,9 +947,58 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                         overflow: 'hidden', animation: 'fadeIn 0.15s ease'
                                     }}>
                                         {/* Header */}
-                                        <div style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', padding: '12px 16px' }}>
-                                            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700' }}>📐 Formação de Preço</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>Parâmetros do cálculo desta proposta</div>
+                                        <div style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700' }}>📐 Formação de Preço</div>
+                                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>Parâmetros do cálculo desta proposta</div>
+                                            </div>
+                                            {hasOutdatedParams && (
+                                                <button onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm("Isso irá recalcular os preços de todos os itens do orçamento para os parâmetros atuais da empresa. Deseja continuar?")) {
+                                                        setPricingSnapshot(globalParams);
+                                                        setHasOutdatedParams(false);
+                                                        
+                                                        try {
+                                                            const itemsToSave = [...budgetItems];
+                                                            let totalFab = 0; let totalAss = 0;
+                                                            itemsToSave.forEach(item => {
+                                                                item.products.forEach(p => {
+                                                                    const unit = p.product.unit?.toUpperCase();
+                                                                    if (unit === 'DF') totalFab += p.quantity;
+                                                                    else if (unit === 'DM') totalAss += p.quantity;
+                                                                    else if (unit === 'DIA') {
+                                                                        if (p.product.name.toLowerCase().includes('montagem')) totalAss += p.quantity;
+                                                                        else totalFab += p.quantity;
+                                                                    }
+                                                                });
+                                                            });
+                                                            const totalValue = itemsToSave.reduce((acc, item) => {
+                                                                const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
+                                                                const comm = globalParams.commission / 100;
+                                                                const taxes = globalParams.taxes / 100;
+                                                                const financeCost = globalParams.financeCost / 100;
+                                                                const markup = globalParams.markup / 100;
+                                                                const denominator = 1 - (comm + taxes + financeCost + markup);
+                                                                return acc + (denominator <= 0 ? itemCost : itemCost / denominator);
+                                                            }, 0);
+                                                            
+                                                            await api.put(`/proposals/${proposal.id}`, {
+                                                                budget_data: JSON.stringify(itemsToSave),
+                                                                pricing_snapshot: JSON.stringify(globalParams),
+                                                                value: totalValue,
+                                                                fabrication_days: totalFab,
+                                                                assembly_days: totalAss
+                                                            });
+                                                            proposal.value = totalValue;
+                                                        } catch (err) {
+                                                            console.error('Failed to update pricing snapshot:', err);
+                                                        }
+                                                    }
+                                                }} style={{ background: '#eab308', color: '#000', padding: '6px', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Atualizar Preços">
+                                                    <AlertCircle size={18} />
+                                                </button>
+                                            )}
                                         </div>
 
                                         {/* Params */}
@@ -2115,9 +2118,60 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             <div style={{ fontSize: '12px', color: '#64748b' }}>Aceite do Cliente</div>
                                         </div>
                                         
-                                        <div style={{ marginTop: '40px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
-                                            Documento gerado eletronicamente em {new Date().toLocaleString('pt-BR')} por {user?.name}.
-                                        </div>
+                                        {(() => {
+                                            const isImageAtt = (a) =>
+                                                (a.type && a.type.includes('image')) ||
+                                                /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(a.url || a.name || '');
+
+                                            const itemsWithImages = budgetItems.filter(item => {
+                                                const atts = Array.isArray(item.attachments) ? item.attachments : [];
+                                                return atts.some(isImageAtt);
+                                            });
+
+                                            return (
+                                                <>
+                                                    <div style={{ marginTop: '40px', fontSize: '11px', color: '#94a3b8', textAlign: 'center', pageBreakAfter: itemsWithImages.length > 0 ? 'always' : 'auto' }}>
+                                                        Documento gerado eletronicamente em {new Date().toLocaleString('pt-BR')} por {user?.name}.
+                                                    </div>
+
+                                                    {itemsWithImages.length > 0 && (
+                                                        <div style={{ marginTop: '40px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px' }}>
+                                                                <div style={{ height: '3px', flex: 1, background: 'linear-gradient(90deg, #6366f1, transparent)' }} />
+                                                                <div style={{ fontSize: '18px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#6366f1', whiteSpace: 'nowrap' }}>
+                                                                    IMAGENS DO PROJETO
+                                                                </div>
+                                                                <div style={{ height: '3px', flex: 1, background: 'linear-gradient(270deg, #6366f1, transparent)' }} />
+                                                            </div>
+                                                            
+                                                            {itemsWithImages.map(item => {
+                                                                const atts = Array.isArray(item.attachments) ? item.attachments : [];
+                                                                const images = atts.filter(isImageAtt);
+                                                                
+                                                                return (
+                                                                    <div key={item.id} style={{ marginBottom: '40px', pageBreakInside: 'avoid' }}>
+                                                                        <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', borderBottom: '2px solid #cbd5e1', paddingBottom: '8px', marginBottom: '16px', textTransform: 'uppercase' }}>
+                                                                            {item.name}
+                                                                        </h3>
+                                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                                                            {images.map((img, idx) => (
+                                                                                <div key={idx} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px', background: '#f8fafc', pageBreakInside: 'avoid' }}>
+                                                                                    <img 
+                                                                                        src={img.url} 
+                                                                                        alt={`${item.name} - ${idx}`} 
+                                                                                        style={{ width: '100%', maxHeight: '600px', objectFit: 'contain', borderRadius: '8px' }} 
+                                                                                    />
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
 
                                         {/* Overlay de Imagem em Tela Cheia */}
                                         {fullscreenImage && (
