@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileSearch, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle, RotateCcw } from 'lucide-react';
+import { Plus, Search, FileSearch, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle, RotateCcw, FileSignature } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 import { PartnerModal } from './Partners';
@@ -18,6 +18,16 @@ const parseCurrency = (v) => {
     if (!v) return 0;
     if (typeof v === 'number') return v;
     return parseFloat(v.replace(/[R$\s.]/g, '').replace(',', '.'));
+};
+
+const handleCurrencyInput = (value) => {
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return 'R$ 0,00';
+    const cents = parseFloat(digits) / 100;
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(cents);
 };
 
 // ── Modais Auxiliares ──────────────────────────────────────────────────────
@@ -762,21 +772,30 @@ const EventModal = ({ proposal, onClose }) => {
 const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSave, onGerarContrato }) => {
     const [liveSettings, setLiveSettings] = useState(settingsProp);
     const [paymentNotes, setPaymentNotes] = useState('');
+    const [deliveryDeadline, setDeliveryDeadline] = useState('');
+    const [assemblyDeadline, setAssemblyDeadline] = useState('');
     const [saving, setSaving] = useState(false);
-    const [saveMsg, setSaveMsg] = useState('');
-    const [error, setError] = useState('');
 
     useEffect(() => {
         if (!proposal) return;
         setPaymentNotes(proposal.payment_notes || proposal.payment_methods || '');
+        setDeliveryDeadline(proposal.delivery_deadline || '');
+        setAssemblyDeadline(proposal.assembly_deadline || '');
+        
         let snap = null;
         if (proposal.pricing_snapshot) {
             try { snap = JSON.parse(proposal.pricing_snapshot); } catch(e) {}
         }
         if (snap && typeof snap === 'object') {
             setLiveSettings(snap);
+            if (!proposal.delivery_deadline) setDeliveryDeadline(snap.entrega || '45 (quarenta e cinco) dias úteis');
+            if (!proposal.assembly_deadline) setAssemblyDeadline(snap.montagem || '20 (vinte) dias úteis');
         } else {
-            api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
+            api.get('/settings').then(r => {
+                setLiveSettings(r.data);
+                if (!proposal.delivery_deadline) setDeliveryDeadline(r.data.entrega || '45 (quarenta e cinco) dias úteis');
+                if (!proposal.assembly_deadline) setAssemblyDeadline(r.data.montagem || '20 (vinte) dias úteis');
+            }).catch(() => {});
         }
     }, [proposal]);
 
@@ -794,38 +813,20 @@ const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSa
         return acc + calcSalePrice(cost);
     }, 0);
 
-    const handleSave = async () => {
-        setSaving(true); setError(''); setSaveMsg('');
-        try {
-            await api.put(`/proposals/${proposal.id}`, {
-                payment_notes: paymentNotes,
-                payment_methods: paymentNotes,
-            });
-            setSaveMsg('Salvo com sucesso!');
-            if (onSave) onSave();
-            setTimeout(() => setSaveMsg(''), 2500);
-        } catch(e) {
-            setError('Erro ao salvar: ' + (e.response?.data?.error || e.message));
-        }
-        setSaving(false);
-    };
-
     const handleGerarContrato = async () => {
-        // Salva antes de gerar
-        setSaving(true); setError('');
+        setSaving(true);
         try {
             await api.put(`/proposals/${proposal.id}`, {
-                payment_notes: paymentNotes,
-                payment_methods: paymentNotes,
+                delivery_deadline: deliveryDeadline,
+                assembly_deadline: assemblyDeadline
             });
+            proposal.delivery_deadline = deliveryDeadline;
+            proposal.assembly_deadline = assemblyDeadline;
             if (onSave) onSave();
         } catch(e) {
-            setError('Erro ao salvar condições: ' + (e.response?.data?.error || e.message));
-            setSaving(false);
-            return;
+            console.error('Erro ao salvar prazos:', e);
         }
         setSaving(false);
-        // Abrir modal de contrato
         if (onGerarContrato) onGerarContrato(proposal);
     };
 
@@ -875,47 +876,66 @@ const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSa
                         </div>
                     </div>
 
-                    {/* Condições de pagamento — editável */}
+                    {/* Condições de pagamento */}
                     <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800' }}>Condições de Pagamento</div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Editável — clique no texto para alterar</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.75rem' }}>Condições de Pagamento</div>
+                        <div style={{
+                            width: '100%',
+                            padding: '0.85rem 1rem',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '10px',
+                            fontSize: '0.9rem',
+                            lineHeight: '1.7',
+                            color: 'var(--text-muted)',
+                            whiteSpace: 'pre-wrap',
+                            boxSizing: 'border-box',
+                        }}>
+                            {paymentNotes || 'Nenhuma condição registrada.'}
                         </div>
-                        <textarea
-                            value={paymentNotes}
-                            onChange={e => setPaymentNotes(e.target.value)}
-                            rows={6}
-                            style={{
-                                width: '100%',
-                                padding: '0.85rem 1rem',
-                                background: 'rgba(16,185,129,0.06)',
-                                border: '1.5px solid rgba(16,185,129,0.35)',
-                                borderRadius: '10px',
-                                fontSize: '0.9rem',
-                                lineHeight: '1.7',
-                                color: 'var(--text)',
-                                resize: 'vertical',
-                                fontFamily: 'inherit',
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                            }}
-                            placeholder="Descreva aqui as condições de pagamento acordadas..."
-                        />
                     </div>
 
-                    {/* Observações */}
-                    {proposal.description && (
+                    {/* Prazos de Entrega e Montagem */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                         <div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.75rem' }}>Observações</div>
-                            <div style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-                                {proposal.description}
-                            </div>
+                            <label style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.5rem', display: 'block' }}>Prazo de Entrega</label>
+                            <input
+                                value={deliveryDeadline}
+                                onChange={e => setDeliveryDeadline(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.85rem 1rem',
+                                    background: 'rgba(255,255,255,0.03)',
+                                    border: '1.5px solid var(--border)',
+                                    borderRadius: '10px',
+                                    fontSize: '0.9rem',
+                                    color: 'var(--text)',
+                                    outline: 'none',
+                                    boxSizing: 'border-box',
+                                }}
+                                placeholder="Ex: 45 (quarenta e cinco) dias úteis"
+                            />
                         </div>
-                    )}
-
-                    {/* Feedback */}
-                    {error && <div style={{ padding: '0.75rem 1rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '0.85rem' }}>{error}</div>}
-                    {saveMsg && <div style={{ padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', color: '#10b981', fontSize: '0.85rem' }}>✓ {saveMsg}</div>}
+                        <div>
+                            <label style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.5rem', display: 'block' }}>Prazo de Montagem</label>
+                            <input
+                                value={assemblyDeadline}
+                                onChange={e => setAssemblyDeadline(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.85rem 1rem',
+                                    background: 'rgba(255,255,255,0.03)',
+                                    border: '1.5px solid var(--border)',
+                                    borderRadius: '10px',
+                                    fontSize: '0.9rem',
+                                    color: 'var(--text)',
+                                    outline: 'none',
+                                    boxSizing: 'border-box',
+                                }}
+                                placeholder="Ex: 20 (vinte) dias úteis"
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 {/* Footer */}
@@ -928,18 +948,11 @@ const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSa
                     </button>
                     <div style={{ display: 'flex', gap: '10px' }}>
                         <button
-                            onClick={handleSave}
-                            disabled={saving}
-                            style={{ padding: '10px 20px', borderRadius: '10px', border: '1px solid var(--primary)', background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '0.88rem', opacity: saving ? 0.7 : 1 }}
-                        >
-                            {saving ? 'Salvando...' : '💾 Salvar Alterações'}
-                        </button>
-                        <button
                             onClick={handleGerarContrato}
                             disabled={saving}
-                            style={{ padding: '10px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '800', fontSize: '0.88rem', opacity: saving ? 0.7 : 1, boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}
+                            style={{ padding: '10px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: 'pointer', fontWeight: '800', fontSize: '0.88rem', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}
                         >
-                            📄 Gerar Contrato
+                            {saving ? 'Processando...' : '📄 Gerar Contrato'}
                         </button>
                     </div>
                 </div>
@@ -977,7 +990,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
             status: proposal.status || 'ABERTO',
             phase: proposal.phase || 'Comercial',
             description: proposal.description || '',
-            payment_methods: proposal.payment_methods || '',
+            payment_methods: '',
             payment_notes: proposal.payment_notes || ''
         });
         setSelectedCondIdx(null);
@@ -1071,22 +1084,11 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     };
 
     const handleSelectCondition = (cond, idx) => {
-        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
-        const titleStr = cond.title ? ` - ${cond.title}` : '';
-        let text = `Opção ${idx + 1}${titleStr}${activeMethod ? ` — ${activeMethod.name}` : ''}\n`;
-        if (totalDiscountPct > 0) text += `• Desconto: ${totalDiscountPct.toFixed(2)}%\n`;
-        text += `• Total: ${maskCurrency(financedTotal)}\n`;
-        if (isAVista) {
-            text += `• À vista: ${maskCurrency(financedTotal)}`;
-        } else if (downPct > 0) {
-            text += `• Entrada (${downPct}%): ${maskCurrency(downValue)}\n`;
-            text += `• + ${installments}x de ${maskCurrency(installAmt)}`;
-        } else {
-            text += `• ${installments}x de ${maskCurrency(installAmt)}`;
-        }
-        setForm(f => ({ ...f, payment_methods: text }));
         setSelectedCondIdx(idx);
         setFluxoRows(buildFluxoRows(cond, idx));
+        setForm(f => ({ ...f, payment_methods: '' }));
+        setError('');
+        setShowFluxo(true);
     };
 
     const handleUpdateConditionField = (field, val) => {
@@ -1157,6 +1159,44 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
     };
 
     const handleConfirmApproval = async () => {
+        // 1. Validar se a primeira data é maior ou igual à data da proposta.
+        if (fluxoRows.length > 0) {
+            const proposalDate = new Date(proposal.created_at);
+            proposalDate.setHours(0, 0, 0, 0);
+            
+            const firstInstallmentDate = new Date(fluxoRows[0].date + 'T00:00:00');
+            firstInstallmentDate.setHours(0, 0, 0, 0);
+
+            if (firstInstallmentDate < proposalDate) {
+                alert(`A primeira data do fluxo (${firstInstallmentDate.toLocaleDateString('pt-BR')}) deve ser maior ou igual à data de criação da proposta (${proposalDate.toLocaleDateString('pt-BR')}).`);
+                return;
+            }
+        }
+
+        // 2. As datas inseridas após a primeira, sempre devem ser maiores que a data imediatamente anterior.
+        for (let i = 1; i < fluxoRows.length; i++) {
+            const prevDate = new Date(fluxoRows[i - 1].date + 'T00:00:00');
+            prevDate.setHours(0, 0, 0, 0);
+
+            const currDate = new Date(fluxoRows[i].date + 'T00:00:00');
+            currDate.setHours(0, 0, 0, 0);
+
+            if (currDate <= prevDate) {
+                alert(`A data da parcela ${i + 1} (${currDate.toLocaleDateString('pt-BR')}) deve ser maior que a data da parcela anterior (${prevDate.toLocaleDateString('pt-BR')}).`);
+                return;
+            }
+        }
+
+        // 3. Verificar se o Total do fluxo é diferente do valor da proposta.
+        const totalFluxo = fluxoRows.reduce((acc, r) => acc + parseCurrency(r.value), 0);
+        const diff = Math.abs(totalFluxo - grandTotal);
+        if (diff > 0.05) {
+            const confirmProceed = window.confirm(`Atenção: O valor total do fluxo (${maskCurrency(totalFluxo)}) é diferente do valor da proposta (${maskCurrency(grandTotal)}). Deseja realmente aprovar a proposta com este fluxo?`);
+            if (!confirmProceed) {
+                return;
+            }
+        }
+
         setSaving(true); setError('');
         try {
             // Convert display values back to numeric and format dates for the API
@@ -1194,7 +1234,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
         <>
         {createPortal(
         <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '1400px', width: '98%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '95vh' }}>
+            <div className="modal-content" style={{ maxWidth: '640px', width: '98%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '95vh' }}>
                 {/* HEADER */}
                 <div style={{ background: 'var(--card-bg)', borderBottom: '2px solid var(--border)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '2rem' }}>
@@ -1208,282 +1248,120 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                             <div style={{ fontWeight: '800', fontSize: '1.2rem' }}>{proposal.phase === 'Comercial' ? `PROPOSTA #${proposal.id}` : `PROJETO #${proposal.id}`}</div>
                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Criado em: {new Date(proposal.created_at).toLocaleDateString('pt-BR')}</div>
                         </div>
+                        <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Valor Total</div>
+                            <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Base de cálculo</div>
+                        </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        {onPrint && (
-                            <button
-                                onClick={onPrint}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--primary)', background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem' }}
-                            >
-                                📄 Gerar Proposta
-                            </button>
-                        )}
                         <button onClick={onClose} className="btn-icon"><X size={24} /></button>
                     </div>
                 </div>
 
-                {/* BODY — 3 columns: items | images | payment */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.2fr', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                    {/* COL 1 — items */}
-                    <div style={{ borderRight: '2px solid var(--border)', padding: '1.5rem', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
-                        <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1rem', color: 'white' }}>
-                            <FileText size={18} color="var(--primary)" /> Itens do Orçamento
-                        </h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {budgetItems.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>Nenhum item no orçamento.</div>
-                            ) : budgetItems.map((item, i) => (
-                                <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                                        <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{item.name}</div>
-                                        <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1rem' }}>{maskCurrency(calculateItemSaleTotal(item))}</div>
-                                    </div>
-                                    {item.description && (
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{item.description}</div>
-                                    )}
-                                    {(() => {
-                                        const rawProducts = (item.products || []).filter(p => 
-                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
-                                        );
-                                        
-                                        const uniqueProductsMap = new Map();
-                                        rawProducts.forEach(p => {
-                                            if (p.product && !uniqueProductsMap.has(p.product.id)) {
-                                                uniqueProductsMap.set(p.product.id, p);
-                                            }
-                                        });
-                                        const displayProducts = Array.from(uniqueProductsMap.values());
-                                        
-                                        if (displayProducts.length === 0) return null;
+                {/* BODY */}
+                <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'var(--card-bg)', overflowY: 'auto', flex: 1 }}>
+                    <h4 style={{ margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem' }}>
+                        <ClipboardCheck size={20} color="var(--primary)" /> Condições de Fechamento
+                    </h4>
 
-                                        return (
-                                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
-                                                <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '8px' }}>
-                                                    Materiais e Acessórios:
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                    {displayProducts.map((hp, hIdx) => (
-                                                        <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                                                            <img 
-                                                                src={hp.product.photo} 
-                                                                alt={hp.product.name} 
-                                                                title={hp.product.name}
-                                                                style={{ width: '28px', height: '28px', objectFit: 'cover', borderRadius: '4px' }} 
-                                                            />
-                                                        </div>
-                                                    ))}
-                                                </div>
+                    {activeMethod ? (
+                        <>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-1rem' }}>
+                                Forma ativa: <strong style={{ color: 'white' }}>{activeMethod.name}</strong>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                {conditions.map((cond, idx) => {
+                                    const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
+                                    const isSelected = selectedCondIdx === idx;
+                                    return (
+                                        <div
+                                            key={idx}
+                                            onClick={() => handleSelectCondition(cond, idx)}
+                                            style={{
+                                                border: '1.5px solid',
+                                                borderColor: isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)'),
+                                                borderRadius: '12px',
+                                                padding: '14px',
+                                                background: isSelected ? 'rgba(99,102,241,0.08)' : (isAVista ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.03)'),
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s',
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                            onMouseLeave={e => e.currentTarget.style.borderColor = isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)')}
+                                        >
+                                            <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.5px' }}>
+                                                Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
                                             </div>
-                                        );
-                                    })()}
-                                </div>
-                            ))}
-                        </div>
-                        <div style={{ marginTop: '1.5rem', padding: '1.25rem', background: 'rgba(16,185,129,0.1)', borderRadius: '16px', border: '2px solid #10b981', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                                <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: '800', textTransform: 'uppercase', marginBottom: '2px' }}>Valor Total</div>
-                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>Parâmetros atuais</div>
-                            </div>
-                            <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(grandTotal)}</div>
-                        </div>
-
-                        {/* Factory & Assembly Days */}
-                        <div style={{ marginTop: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                            <div style={{ padding: '0.9rem 1rem', background: 'rgba(99,102,241,0.1)', borderRadius: '12px', border: '1.5px solid rgba(99,102,241,0.35)', textAlign: 'center' }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🏭 Dias Fábrica</div>
-                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: 'var(--primary)', lineHeight: 1 }}>{diasFabrica}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>dias produção</div>
-                            </div>
-                            <div style={{ padding: '0.9rem 1rem', background: 'rgba(234,179,8,0.08)', borderRadius: '12px', border: '1.5px solid rgba(234,179,8,0.35)', textAlign: 'center' }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: '800', color: '#eab308', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🔧 Dias Montagem</div>
-                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#eab308', lineHeight: 1 }}>{diasMontagem}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>dias instalação</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* COL 2 — images */}
-                    <div style={{ borderRight: '2px solid var(--border)', padding: '1.5rem', overflowY: 'auto', background: 'rgba(0,0,0,0.05)' }}>
-                        <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1rem', color: 'white' }}>
-                            <Image size={18} color="var(--primary)" /> Imagens da Proposta
-                        </h4>
-                        {(() => {
-                            const isImageAtt = (a) =>
-                                (a.type && a.type.includes('image')) ||
-                                /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(a.url || a.name || '');
-                            const allImages = budgetItems.flatMap(item => {
-                                const atts = Array.isArray(item.attachments)
-                                    ? item.attachments
-                                    : (typeof item.attachments === 'string' ? (() => { try { return JSON.parse(item.attachments); } catch { return []; } })() : []);
-                                return atts.filter(isImageAtt).map(a => ({ ...a, itemName: item.name }));
-                            });
-                            return allImages.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', fontSize: '0.85rem' }}>
-                                    Nenhuma imagem anexada aos itens.
-                                </div>
-                            ) : (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                    {allImages.map((img, i) => (
-                                        <div key={i} style={{ position: 'relative', cursor: 'zoom-in' }} onClick={() => setFullscreenImage(img.url)}>
-                                            <img
-                                                src={img.url}
-                                                alt={img.itemName}
-                                                style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)' }}
-                                            />
-                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: '9px', padding: '3px 6px', borderRadius: '0 0 8px 8px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                                {img.itemName}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })()}
-                    </div>
-
-                    {/* RIGHT — payment conditions */}
-                    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'var(--card-bg)', overflowY: 'auto' }}>
-                        <h4 style={{ margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.1rem' }}>
-                            <ClipboardCheck size={20} color="var(--primary)" /> Condições de Fechamento
-                        </h4>
-
-                        {activeMethod ? (
-                            <>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-1rem' }}>
-                                    Forma ativa: <strong style={{ color: 'white' }}>{activeMethod.name}</strong>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                    {conditions.map((cond, idx) => {
-                                        const { installments, isAVista, totalDiscountPct, financedTotal, downPct, downValue, installAmt } = calcCondition(cond);
-                                        const isSelected = selectedCondIdx === idx;
-                                        return (
-                                            <div
-                                                key={idx}
-                                                onClick={() => handleSelectCondition(cond, idx)}
-                                                style={{
-                                                    border: '1.5px solid',
-                                                    borderColor: isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)'),
-                                                    borderRadius: '12px',
-                                                    padding: '14px',
-                                                    background: isSelected ? 'rgba(99,102,241,0.08)' : (isAVista ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.03)'),
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                }}
-                                                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                                                onMouseLeave={e => e.currentTarget.style.borderColor = isSelected ? 'var(--primary)' : (isAVista ? '#86efac' : 'var(--border)')}
-                                            >
-                                                <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.5px' }}>
-                                                    Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
-                                                </div>
-                                                <div style={{ fontSize: '13px', fontWeight: '900', color: isSelected ? 'var(--primary)' : (isAVista ? '#16a34a' : 'white'), borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
-                                                    {isAVista ? (
-                                                        `À vista: ${maskCurrency(financedTotal)}`
-                                                    ) : downPct > 0 ? (
-                                                        <>
-                                                            <div>Entrada {downPct}%: <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(downValue)}</span></div>
-                                                            <div>+ {installments}x de <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
-                                                        </>
-                                                    ) : (
-                                                        `${installments}x de ${maskCurrency(installAmt)}`
-                                                    )}
-                                                </div>
-                                                {totalDiscountPct > 0 && (
-                                                    <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
-                                                        Desconto: {totalDiscountPct.toFixed(2)}%
-                                                    </div>
+                                            <div style={{ fontSize: '13px', fontWeight: '900', color: isSelected ? 'var(--primary)' : (isAVista ? '#16a34a' : 'white'), borderTop: '1px solid var(--border)', paddingTop: '6px', lineHeight: '1.6' }}>
+                                                {isAVista ? (
+                                                    `À vista: ${maskCurrency(financedTotal)}`
+                                                ) : downPct > 0 ? (
+                                                    <>
+                                                        <div>Entrada {downPct}%: <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(downValue)}</span></div>
+                                                        <div>+ {installments}x de <span style={{ color: isSelected ? 'var(--primary)' : '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
+                                                    </>
+                                                ) : (
+                                                    `${installments}x de ${maskCurrency(installAmt)}`
                                                 )}
                                             </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {selectedCondIdx !== null && (
-                                    <div style={{
-                                        border: '1.5px solid var(--border)',
+                                            {totalDiscountPct > 0 && (
+                                                <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
+                                                    Desconto: {totalDiscountPct.toFixed(2)}%
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                {/* Opção - Conforme negociação */}
+                                <div
+                                    onClick={() => {
+                                        setForm(f => ({ ...f, payment_methods: '' }));
+                                        setSelectedCondIdx('NEGOCIACAO');
+                                        const today = new Date().toISOString().split('T')[0];
+                                        setFluxoRows([{ title: 'Entrada / Única', value: maskCurrency(grandTotal), date: today, note: '' }]);
+                                        setError('');
+                                        setShowFluxo(true);
+                                    }}
+                                    style={{
+                                        border: '1.5px dashed #10b981',
                                         borderRadius: '12px',
-                                        padding: '16px',
-                                        background: 'rgba(255,255,255,0.02)',
-                                        marginTop: '0.5rem',
+                                        padding: '14px',
+                                        background: selectedCondIdx === 'NEGOCIACAO' ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.03)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        gap: '12px'
-                                    }}>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                            ✏️ Customizar Opção {selectedCondIdx + 1}
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Parcelas</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="120"
-                                                    value={conditions[selectedCondIdx]?.installments ?? 0}
-                                                    onChange={e => handleUpdateConditionField('installments', e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
-                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
-                                                />
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Desconto (%)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    step="0.01"
-                                                    value={conditions[selectedCondIdx]?.discount_percentage || 0}
-                                                    onChange={e => handleUpdateConditionField('discount_percentage', parseFloat(e.target.value) || 0)}
-                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
-                                                />
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Entrada (%)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    step="0.01"
-                                                    value={conditions[selectedCondIdx]?.down_payment_percentage || 0}
-                                                    onChange={e => handleUpdateConditionField('down_payment_percentage', parseFloat(e.target.value) || 0)}
-                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
-                                                />
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '700' }}>Custo Fin. / Juros (%)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    step="0.01"
-                                                    value={conditions[selectedCondIdx]?.finance_cost_percentage || 0}
-                                                    onChange={e => handleUpdateConditionField('finance_cost_percentage', parseFloat(e.target.value) || 0)}
-                                                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'rgba(0,0,0,0.2)', color: 'white', fontSize: '0.82rem' }}
-                                                />
-                                            </div>
-                                        </div>
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        textAlign: 'center'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                    onMouseLeave={e => e.currentTarget.style.borderColor = '#10b981'}
+                                >
+                                    <div style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', color: '#10b981', marginBottom: '4px', letterSpacing: '0.5px' }}>
+                                        Personalizado
                                     </div>
-                                )}
-                            </>
-                        ) : (
-                            <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Nenhuma forma de pagamento ativa encontrada.</div>
-                        )}
-
-                        <div>
-                            <label style={{ marginBottom: '8px', display: 'block', fontWeight: '700', fontSize: '0.85rem' }}>Resumo / Observações</label>
-                            <textarea
-                                value={form.payment_methods}
-                                onChange={e => setForm(f => ({ ...f, payment_methods: e.target.value }))}
-                                style={{ width: '100%', minHeight: '130px', padding: '12px', borderRadius: '8px', border: '1.5px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.85rem' }}
-                            />
-                        </div>
-                    </div>
+                                    <div style={{ fontSize: '13px', fontWeight: '900', color: 'white' }}>
+                                        Opção - Conforme negociação
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        Montar fluxo customizado
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Nenhuma forma de pagamento ativa encontrada.</div>
+                    )}
                 </div>
 
                 {/* FOOTER */}
                 <div style={{ background: 'rgba(0,0,0,0.3)', borderTop: '2px solid var(--border)', padding: '1.25rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ color: '#ef4444', fontSize: '0.9rem', fontWeight: '600' }}>{error}</div>
                     <div style={{ display: 'flex', gap: '1rem' }}>
-                        <button onClick={() => handleAction('ARQUIVADO')} disabled={saving} className="btn-secondary">Arquivar</button>
+                        <button onClick={onClose} className="btn-secondary">Fechar</button>
                         <button onClick={() => handleAction('REJEITADO')} disabled={saving} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #ef4444', background: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer', fontWeight: '700' }}>Declinar</button>
-                        <button onClick={() => handleAction('APROVADO')} disabled={saving} className="btn-premium" style={{ padding: '12px 40px', fontSize: '1.1rem' }}>{saving ? 'Processando...' : '✓ Demonstrar fluxo'}</button>
                     </div>
                 </div>
             </div>
@@ -1536,7 +1414,7 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                                         <td style={{ padding: '8px 10px' }}>
                                             <input
                                                 value={row.value}
-                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, value: maskCurrency(e.target.value) } : r))}
+                                                onChange={e => setFluxoRows(rows => rows.map((r, j) => j === i ? { ...r, value: handleCurrencyInput(e.target.value) } : r))}
                                                 style={{ width: '120px', marginBottom: 0, textAlign: 'right', fontWeight: '700', color: '#10b981' }}
                                             />
                                         </td>
@@ -1571,17 +1449,6 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                         </table>
                     </div>
 
-                    {/* Total summary */}
-                    {(() => {
-                        const total = fluxoRows.reduce((acc, r) => acc + parseCurrency(r.value), 0);
-                        return (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'rgba(16,185,129,0.08)', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.3)', marginBottom: '1rem' }}>
-                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total do fluxo:</span>
-                                <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(total)}</span>
-                            </div>
-                        );
-                    })()}
-
                     {/* Add row button */}
                     <button
                         onClick={() => {
@@ -1594,6 +1461,28 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                     >
                         <Plus size={16} /> Adicionar Linha
                     </button>
+
+                    {/* Total summary */}
+                    {(() => {
+                        const total = fluxoRows.reduce((acc, r) => acc + parseCurrency(r.value), 0);
+                        return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'rgba(16,185,129,0.08)', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.3)', marginBottom: '1rem' }}>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total do fluxo:</span>
+                                <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{maskCurrency(total)}</span>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Observações */}
+                    <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ marginBottom: '8px', display: 'block', fontWeight: '700', fontSize: '0.85rem', color: 'white' }}>Observações</label>
+                        <textarea
+                            value={form.payment_methods}
+                            onChange={e => setForm(f => ({ ...f, payment_methods: e.target.value }))}
+                            style={{ width: '100%', minHeight: '80px', padding: '12px', borderRadius: '8px', border: '1.5px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.85rem' }}
+                            placeholder="Informações sobre as condições de pagamento que constarão no contrato..."
+                        />
+                    </div>
 
                     {/* Footer actions */}
                     {successMsg ? (
@@ -1868,10 +1757,10 @@ const Proposals = ({ user }) => {
                                                                 {/* Ver dados da proposta + condição de pagamento */}
                                                                 <button
                                                                     onClick={() => setApprovedModalData({ show: true, proposal: p })}
-                                                                    title="Ver dados da proposta e condição de pagamento"
+                                                                    title="Gerar contrato"
                                                                     style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}
                                                                 >
-                                                                    <ClipboardCheck size={18} />
+                                                                    <FileSignature size={18} />
                                                                 </button>
                                                                 {/* Reabrir proposta */}
                                                                 <button

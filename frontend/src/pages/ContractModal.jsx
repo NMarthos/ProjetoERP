@@ -89,6 +89,21 @@ const ContractModal = ({ proposal, settings: settingsProp, onClose }) => {
     let budgetItems = [];
     try { budgetItems = proposal.budget_data ? JSON.parse(proposal.budget_data) : []; } catch(e) {}
 
+    const isImageAtt = (a) =>
+        (a.type && a.type.includes('image')) ||
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(a.url || a.name || '');
+
+    const presentationImages = budgetItems.flatMap(item => {
+        if (item.includeInPresentation === false) return [];
+        const atts = Array.isArray(item.attachments)
+            ? item.attachments
+            : (typeof item.attachments === 'string' ? (() => { try { return JSON.parse(item.attachments); } catch { return []; } })() : []);
+        return atts.filter(img => isImageAtt(img) && img.excludeFromPresentation !== true).map(img => ({
+            ...img,
+            itemName: item.name
+        }));
+    });
+
     const { taxes = 0, markup = 0, financeCost = 0 } = settingsProp || {};
     const comm = proposal.referrer_commission || 0;
     const divisor = 1 - (taxes/100) - (markup/100) - (financeCost/100) - (comm/100);
@@ -126,12 +141,15 @@ const ContractModal = ({ proposal, settings: settingsProp, onClose }) => {
     const handlePrint = () => {
         const content = printRef.current;
         if (!content) return;
+        const formattedDate = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const formattedClientName = proposal.partner_name.toUpperCase().replace(/\s+/g, '_');
+        const titleString = `CONTRATO_${contractNum}_${formattedDate}_${formattedClientName}`;
         const win = window.open('', '_blank', 'width=900,height=700');
         win.document.write(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<title>Contrato #${contractNum}</title>
+<title>${titleString}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -180,7 +198,40 @@ ${content.innerHTML}
 </body>
 </html>`);
         win.document.close();
-        setTimeout(() => { win.focus(); win.print(); }, 600);
+
+        const imgs = win.document.querySelectorAll('img');
+        if (imgs.length > 0) {
+            let loaded = 0;
+            const checkLoad = () => {
+                loaded++;
+                if (loaded === imgs.length) {
+                    setTimeout(() => {
+                        win.focus();
+                        win.print();
+                    }, 500);
+                }
+            };
+            imgs.forEach(img => {
+                if (img.complete) {
+                    checkLoad();
+                } else {
+                    img.addEventListener('load', checkLoad);
+                    img.addEventListener('error', checkLoad);
+                }
+            });
+            // Fallback timeout in case image loading hangs
+            setTimeout(() => {
+                if (loaded < imgs.length) {
+                    win.focus();
+                    win.print();
+                }
+            }, 5000);
+        } else {
+            setTimeout(() => {
+                win.focus();
+                win.print();
+            }, 500);
+        }
     };
 
     const tenantAddress = tenant
@@ -319,9 +370,40 @@ ${content.innerHTML}
                                         <td style={{ padding: '6px 10px', borderBottom: '1px solid #e0e0e0', background: i % 2 === 0 ? '#fff' : '#f8f8f8', fontWeight: '700', fontSize: '9pt' }}>{i + 1}</td>
                                         <td style={{ padding: '6px 10px', borderBottom: '1px solid #e0e0e0', background: i % 2 === 0 ? '#fff' : '#f8f8f8', fontWeight: '700' }}>{item.name}</td>
                                         <td style={{ padding: '6px 10px', borderBottom: '1px solid #e0e0e0', background: i % 2 === 0 ? '#fff' : '#f8f8f8', fontSize: '8.5pt', color: '#444' }}>
-                                            {item.products.map((p, j) => (
-                                                <div key={j}>{p.product?.name || p.name || ''}{p.quantity ? ` (${p.quantity} ${p.product?.unit || ''})` : ''}</div>
-                                            ))}
+                                            <div style={{ whiteSpace: 'pre-wrap', fontWeight: '500' }}>{item.description || '—'}</div>
+                                            {(() => {
+                                                const rawProducts = (item.products || []).filter(p => 
+                                                    (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
+                                                );
+                                                
+                                                const uniqueProductsMap = new Map();
+                                                rawProducts.forEach(p => {
+                                                    if (p.product && !uniqueProductsMap.has(p.product.id)) {
+                                                        uniqueProductsMap.set(p.product.id, p);
+                                                    }
+                                                });
+                                                const displayProducts = Array.from(uniqueProductsMap.values());
+                                                
+                                                if (displayProducts.length === 0) return null;
+
+                                                return (
+                                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                                        {displayProducts.map((hp, hIdx) => (
+                                                            <div key={hIdx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', padding: '4px' }}>
+                                                                <img 
+                                                                    src={hp.product.photo} 
+                                                                    alt={hp.product.name} 
+                                                                    title={hp.product.name}
+                                                                    style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '2px' }} 
+                                                                />
+                                                                <span style={{ fontSize: '7pt', color: '#666', maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                                                    {hp.product.name}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td style={{ padding: '6px 10px', borderBottom: '1px solid #e0e0e0', background: i % 2 === 0 ? '#fff' : '#f8f8f8', fontWeight: '700', textAlign: 'right', whiteSpace: 'nowrap' }}>{maskCurrency(price)}</td>
                                     </tr>
@@ -347,8 +429,8 @@ ${content.innerHTML}
                     </div>
 
                     {[
-                        { num: '2ª', text: 'Obriga-se o CONTRATADO a disponibilizar para entrega os móveis contratados em até 45 (quarenta e cinco) dias úteis, contados a partir da data de assinatura deste contrato, pagamento dos valores acordados e confirmação de medidas.', children: [
-                            { num: 'Primeiro', text: 'A instalação será realizada pelo CONTRATADO num prazo de até 20 (vinte) dias úteis, desde que não ocorra qualquer impedimento, tais como: regras internas do condomínio (horários limites, horário de recolhimento de lixo, etc.), bem como as condições do local de instalação do móvel (móveis atuais, pinturas, acabamentos, instalações elétricas e telefônicas, etc.). Ocorrendo qualquer impedimento, o prazo final de instalação será prorrogado na mesma proporção.' },
+                        { num: '2ª', text: `Obriga-se o CONTRATADO a disponibilizar para entrega os móveis contratados em ${proposal.delivery_deadline || '45 (quarenta e cinco) dias úteis'}, contados a partir da data de assinatura deste contrato, pagamento dos valores acordados e da confirmação de medidas.`, children: [
+                            { num: 'Primeiro', text: `A instalação será realizada pelo CONTRATADO num prazo de ${proposal.assembly_deadline || '20 (vinte) dias úteis'}, desde que não ocorra qualquer impedimento, tais como: regras internas do condomínio (horários limites, horário de recolhimento de lixo, etc.), bem como as condições do local de instalação do móvel (móveis atuais, pinturas, acabamentos, instalações elétricas e telefônicas, etc.). Ocorrendo qualquer impedimento, o prazo final de instalação será prorrogado na mesma proporção.` },
                             { num: 'Segundo', text: 'Entregas e instalações previstas ou que estiverem em curso entre 20/12 a 10/01 serão suspensas por motivo de férias coletivas. As atividades serão retomadas a partir do primeiro dia útil subsequente a este período.' }
                         ]},
                         { num: '3ª', text: 'O CONTRATANTE se compromete a entregar ao CONTRATADO, antes do início da instalação, a planta hidráulica e elétrica do imóvel, para evitar problemas com encanamentos ou descargas elétricas que possam vir a acontecer, devido à fixação dos móveis. Caso esta não seja fornecida, o CONTRATADO ficará isento de qualquer dano que possa vir a acontecer.', children: [
@@ -410,6 +492,15 @@ ${content.innerHTML}
                             {proposal.payment_notes}
                         </div>
                     )}
+
+                    {/* Payment methods (resumo / observações) */}
+                    {proposal.payment_methods && (
+                        <div style={{ padding: '10px 14px', background: '#f8f8f8', border: '1px solid #ddd', borderRadius: '6px', fontSize: '9.5pt', lineHeight: '1.65', whiteSpace: 'pre-wrap', marginBottom: '14px', color: '#333' }}>
+                            <strong>Observações da Condição de Pagamento:</strong><br />
+                            {proposal.payment_methods}
+                        </div>
+                    )}
+
 
                     <p style={{ fontSize: '10pt', lineHeight: '1.65', marginBottom: '10px', textAlign: 'justify' }}>
                         <strong>Cláusula 8ª.</strong> Pelos móveis, objeto do presente contrato, o CONTRATANTE pagará ao CONTRATADO o montante de <strong>{maskCurrency(grandTotal)}</strong> ({numExtenso(grandTotal)} reais), conforme planilha acima.
@@ -515,6 +606,28 @@ ${content.innerHTML}
                             </div>
                         </div>
                     </div>
+
+                    {presentationImages.length > 0 && (
+                        <div className="page-break" style={{ marginTop: '40px', borderTop: '2px solid #1a1a1a', paddingTop: '20px' }}>
+                            <div style={{ fontSize: '11pt', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', margin: '20px 0 10px 0', padding: '6px 10px', background: '#f0f0f0', borderLeft: '4px solid #1a1a1a' }}>
+                                Anexo — Imagens do Projeto (Apresentação)
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>
+                                {presentationImages.map((img, idx) => (
+                                    <div key={idx} style={{ border: '1.5px solid #1a1a1a', borderRadius: '6px', padding: '8px', background: '#fff', textAlign: 'center' }}>
+                                        <img 
+                                            src={img.url} 
+                                            alt={img.name || 'Imagem do Projeto'} 
+                                            style={{ maxWidth: '100%', maxHeight: '250px', objectFit: 'contain', borderRadius: '4px' }} 
+                                        />
+                                        <div style={{ fontSize: '9pt', fontWeight: '700', marginTop: '6px', color: '#333' }}>
+                                            {img.itemName}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Footer */}
                     <div style={{ borderTop: '1px solid #ccc', marginTop: '30px', paddingTop: '10px', textAlign: 'center', fontSize: '8pt', color: '#aaa' }}>

@@ -415,7 +415,7 @@ async function start() {
                 let setClauses = [];
                 let params = [];
                 
-                const fields = ['description', 'value', 'status', 'partner_id', 'budget_data', 'fabrication_days', 'assembly_days', 'payment_methods', 'payment_notes', 'pricing_snapshot'];
+                const fields = ['description', 'value', 'status', 'partner_id', 'budget_data', 'fabrication_days', 'assembly_days', 'payment_methods', 'payment_notes', 'pricing_snapshot', 'delivery_deadline', 'assembly_deadline'];
                 fields.forEach(field => {
                     if (body[field] !== undefined) {
                         setClauses.push(`${field}=?`);
@@ -435,9 +435,62 @@ async function start() {
                 const query = `UPDATE proposals SET ${setClauses.join(', ')} WHERE id=? AND tenant_id=?`;
                 params.push(req.params.id, req.tenantId);
                 
-                await db.run(query, params);
-                console.log(`[API] Proposal ${req.params.id} updated successfully`);
-                res.json({ ok: true });
+                await db.run('BEGIN TRANSACTION');
+                try {
+                    await db.run(query, params);
+                    
+                    const updatedProposal = await db.get('SELECT status, payment_notes FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                    if (updatedProposal && updatedProposal.status === 'APROVADO' && updatedProposal.payment_notes) {
+                        // Parse payment_notes to flows
+                        const lines = updatedProposal.payment_notes.split('\n').filter(l => l.includes('|'));
+                        const parsedFlows = [];
+                        for (const line of lines) {
+                            const parts = line.split('|').map(s => s.trim());
+                            if (parts.length >= 3) {
+                                const title = parts[0];
+                                const rawVal = parts[1];
+                                const rawDate = parts[2];
+                                const note = parts[3] || '';
+                                
+                                const value = parseFloat(rawVal.replace(/[R$\s.]/g, '').replace(',', '.'));
+                                
+                                let dueDate = '';
+                                if (rawDate.includes('/')) {
+                                    const dateParts = rawDate.split('/');
+                                    if (dateParts.length === 3) {
+                                        dueDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+                                    }
+                                } else if (rawDate.includes('-')) {
+                                    dueDate = rawDate;
+                                }
+                                
+                                if (title && !isNaN(value) && dueDate) {
+                                    parsedFlows.push({ title, value, due_date: dueDate, note });
+                                }
+                            }
+                        }
+
+                        if (parsedFlows.length > 0) {
+                            await db.run(
+                                `DELETE FROM financial_flows WHERE proposal_id=? AND tenant_id=? AND type='CREDITO'`,
+                                [req.params.id, req.tenantId]
+                            );
+                            for (const row of parsedFlows) {
+                                await db.run(
+                                    `INSERT INTO financial_flows (tenant_id, proposal_id, type, category, title, value, due_date, note, status)
+                                     VALUES (?, ?, 'CREDITO', 'Receita de Projeto', ?, ?, ?, ?, 'EM_ABERTO')`,
+                                    [req.tenantId, req.params.id, row.title, row.value, row.due_date, row.note || '']
+                                );
+                            }
+                            console.log(`[API] Automatically generated ${parsedFlows.length} financial flows for proposal ${req.params.id} via PUT`);
+                        }
+                    }
+                    await db.run('COMMIT');
+                    res.json({ ok: true });
+                } catch (txErr) {
+                    await db.run('ROLLBACK');
+                    throw txErr;
+                }
             } catch (err) {
                 console.error("PUT proposals error:", err);
                 res.status(500).json({ error: 'Erro ao atualizar orçamento: ' + err.message });
@@ -472,7 +525,13 @@ async function start() {
                         [newPhase, payment_methods || '', payment_notes || '', req.params.id, req.tenantId]
                     );
 
-                    // 2. Insert financial flow rows (type=CREDITO, from proposal approval)
+                    // 2. Delete existing CREDIT financial flows for this proposal (to keep only the latest approval)
+                    await db.run(
+                        `DELETE FROM financial_flows WHERE proposal_id=? AND tenant_id=? AND type='CREDITO'`,
+                        [req.params.id, req.tenantId]
+                    );
+
+                    // 3. Insert financial flow rows (type=CREDITO, from proposal approval)
                     if (Array.isArray(flows) && flows.length > 0) {
                         for (const row of flows) {
                             await db.run(
@@ -1136,11 +1195,15 @@ async function start() {
                 const taxes      = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_IMPOSTOS"', [req.tenantId]);
                 const markup     = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_MARKUP"',   [req.tenantId]);
                 const finance    = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_CUSTOFINANCEIRO"', [req.tenantId]);
+                const entrega    = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "FABRICA_PRAZO_ENTREGA"', [req.tenantId]);
+                const montagem   = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "FABRICA_PRAZO_MONTAGEM"', [req.tenantId]);
                 const tenant     = await db.get('SELECT name, cnpj, logo_url, website, instagram, phone FROM tenants WHERE id = ?', [req.tenantId]);
                 res.json({
                     taxes:       taxes      ? parseFloat(taxes.value)              : 0,
                     markup:      markup     ? parseFloat(markup.value)             : 0,
                     financeCost: finance    ? parseFloat(finance.value)            : 0,
+                    entrega:     entrega    ? entrega.value                        : '45 (quarenta e cinco) dias úteis',
+                    montagem:    montagem   ? montagem.value                       : '20 (vinte) dias úteis',
                     tenant:      tenant     || null
                 });
             } catch (err) {
