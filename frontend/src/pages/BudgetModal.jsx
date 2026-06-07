@@ -1445,6 +1445,11 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                     <div className="print-overlay-container" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#fff', color: '#000', zIndex: 20000, overflowY: 'auto', padding: '40px' }}>
                         <style>{`
                             @media print {
+                                * {
+                                    -webkit-print-color-adjust: exact !important;
+                                    print-color-adjust: exact !important;
+                                    color-adjust: exact !important;
+                                }
                                 #root, .modal-overlay {
                                     display: none !important;
                                 }
@@ -1463,12 +1468,35 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     color: #000 !important;
                                 }
                                 .no-print { display: none !important; }
-                                .print-container {
-                                    padding: 0 !important;
-                                    width: 100% !important;
-                                    max-width: 100% !important;
-                                    margin: 0 !important;
+
+                                ${printType !== 'PRESENTATION' ? `
+                                @page {
+                                    margin-top: 0mm;
+                                    margin-bottom: 0mm;
+                                    margin-left: 15mm;
+                                    margin-right: 15mm;
                                 }
+                                body { padding-top: 0; }
+                                .print-container { padding-top: 40px !important; }
+                                .print-block {
+                                    break-inside: avoid;
+                                    page-break-inside: avoid;
+                                    margin-bottom: 1em;
+                                }
+                                .print-items-list {
+                                    break-inside: auto;
+                                    page-break-inside: auto;
+                                    padding-top: 1em;
+                                }
+                                .print-item {
+                                    break-inside: avoid;
+                                    page-break-inside: avoid;
+                                    margin-bottom: 1em;
+                                }
+                                @page :left { margin-top: 40px; }
+                                @page :right { margin-top: 40px; }
+                                @page :first { margin-top: 0mm; }
+                                ` : ''}
                                 ${printType === 'PRESENTATION' ? `
                                 @page {
                                     size: landscape;
@@ -1889,7 +1917,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                             ) : (
                                 <>
                                     {/* HEADER */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', borderBottom: '3px solid #6366f1', paddingBottom: '25px' }}>
+                                    <div className="print-block" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #6366f1', paddingBottom: '20px' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                             {user?.logo_url ? (
                                                 <img src={user.logo_url} alt="Logo" style={{ maxHeight: '70px', maxWidth: '200px', objectFit: 'contain', marginBottom: '10px' }} />
@@ -1900,7 +1928,6 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <User size={14} /> <strong>Responsável:</strong> {user?.name || 'Não identificado'}{user?.phone ? ` - ${maskPhone(user.phone)}` : ''}
                                             </div>
                                         </div>
-                                        
                                         <div style={{ textAlign: 'right' }}>
                                             <h1 style={{ fontSize: '28px', margin: '0 0 10px', color: '#1e293b', fontWeight: '900' }}>PROPOSTA COMERCIAL</h1>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: '10px', justifyContent: 'end', fontSize: '14px' }}>
@@ -1913,191 +1940,107 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     </div>
 
                                     {/* CLIENT INFO */}
-                                    <div style={{ background: '#f8fafc', padding: '25px', borderRadius: '15px', marginBottom: '60px', border: '1.5px solid #e2e8f0' }}>
-                                        <h4 style={{ textTransform: 'uppercase', fontSize: '11px', color: '#6366f1', margin: '0 0 12px', letterSpacing: '1px', fontWeight: '800' }}>Dados do Cliente</h4>
+                                    <div className="print-block" style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1.5px solid #e2e8f0' }}>
+                                        <h4 style={{ textTransform: 'uppercase', fontSize: '11px', color: '#6366f1', margin: '0 0 8px', letterSpacing: '1px', fontWeight: '800' }}>Dados do Cliente</h4>
                                         <div style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>{proposal.partner_name}</div>
                                         <div style={{ fontSize: '15px', color: '#475569', marginTop: '6px' }}>{proposal.partner_phone || proposal.phone || 'Telefone não informado'}</div>
                                     </div>
 
-                                    {/* DETAILS */}
-                                    <div style={{ marginBottom: '40px' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                            <thead>
-                                                <tr style={{ background: '#6366f1', color: '#fff' }}>
-                                                    <th style={{ padding: '15px', fontSize: '12px', textAlign: 'left', borderRadius: '8px 0 0 0' }}>ITEM / DESCRIÇÃO</th>
-                                                    <th style={{ padding: '15px', fontSize: '12px', textAlign: 'right', borderRadius: '0 8px 0 0' }}>VALOR TOTAL</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {budgetItems.map(item => {
-                                                    const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
-                                                    const itemPrice = calculateSalePrice(itemCost);
+                                    {/* DETAILS — header stays with items */}
+                                    <div className="print-block" style={{ display: 'flex', background: '#6366f1', color: '#fff', padding: '15px', borderRadius: '8px 8px 0 0', marginBottom: 0 }}>
+                                        <div style={{ flex: 1, fontSize: '12px', fontWeight: 'bold' }}>ITEM / DESCRIÇÃO</div>
+                                        <div style={{ fontSize: '12px', fontWeight: 'bold', width: '150px', textAlign: 'right' }}>VALOR TOTAL</div>
+                                    </div>
 
-                                                    return (
-                                                        <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                            <td style={{ padding: '20px 15px', verticalAlign: 'top' }}>
-                                                                <div style={{ fontWeight: '800', fontSize: '15px', color: '#1e293b', marginBottom: '8px', textTransform: 'uppercase' }}>{item.name}</div>
-                                                                <div style={{ color: '#475569', fontSize: '13px', lineHeight: '1.5', whiteSpace: 'pre-wrap', marginBottom: '8px' }}>
-                                                                    {item.description || 'Nenhuma especificação informada.'}
-                                                                    {/* Anexos do Item (Apenas Documentos/Arquivos - Sem Fotos) */}
-                                                                    {(() => {
-                                                                        const nonImageAtts = (item.attachments || []).filter(att => {
-                                                                            const isImage = att.type?.includes('image') || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.url || '');
-                                                                            return !isImage;
-                                                                        });
-                                                                        if (nonImageAtts.length === 0) return null;
+                                    {/* ITENS */}
+                                    <div className="print-items-list">
+                                        {budgetItems.map(item => {
+                                            const itemCost = item.products.reduce((acc2, p) => acc2 + p.total, 0);
+                                            const itemPrice = calculateSalePrice(itemCost);
 
-                                                                        return (
-                                                                            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-                                                                                {nonImageAtts.map((att, iidx) => (
-                                                                                    <div 
-                                                                                        key={iidx} 
-                                                                                        onClick={() => window.open(att.url, '_blank')}
-                                                                                        style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}
-                                                                                        title={att.name}
-                                                                                    >
-                                                                                        <Paperclip size={16} color="var(--primary)" />
+                                            return (
+                                                <div className="print-item" key={item.id} style={{ display: 'block', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                                                    <div style={{ display: 'flex' }}>
+                                                        <div style={{ flex: 1, paddingRight: '20px' }}>
+                                                            <div style={{ fontWeight: '800', fontSize: '15px', color: '#1e293b', marginBottom: '4px', textTransform: 'uppercase' }}>{item.name}</div>
+                                                            <div style={{ color: '#475569', fontSize: '13px', lineHeight: '1.3', whiteSpace: 'pre-wrap', marginBottom: '4px' }}>
+                                                                {item.description || 'Nenhuma especificação informada.'}
+                                                                
+                                                                {/* Anexos do Item (Apenas Documentos/Arquivos - Sem Fotos) */}
+                                                                {(() => {
+                                                                    const nonImageAtts = (item.attachments || []).filter(att => {
+                                                                        const isImage = att.type?.includes('image') || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.url || '');
+                                                                        return !isImage;
+                                                                    });
+                                                                    if (nonImageAtts.length === 0) return null;
+
+                                                                    return (
+                                                                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                                                                            {nonImageAtts.map((att, iidx) => (
+                                                                                <div 
+                                                                                    key={iidx} 
+                                                                                    onClick={() => window.open(att.url, '_blank')}
+                                                                                    style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}
+                                                                                    title={att.name}
+                                                                                >
+                                                                                    <Paperclip size={16} color="var(--primary)" />
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                                
+                                                                {/* Materiais e Acessórios (MDF, Ferragens, Vidros) */}
+                                                                {(() => {
+                                                                    const rawProducts = (item.products || []).filter(p => 
+                                                                        (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
+                                                                    );
+                                                                    
+                                                                    const uniqueProductsMap = new Map();
+                                                                    rawProducts.forEach(p => {
+                                                                        if (p.product && !uniqueProductsMap.has(p.product.id)) {
+                                                                            uniqueProductsMap.set(p.product.id, p);
+                                                                        }
+                                                                    });
+                                                                    const displayProducts = Array.from(uniqueProductsMap.values());
+                                                                    
+                                                                    if (displayProducts.length === 0) return null;
+
+                                                                    return (
+                                                                        <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '10px', marginTop: '15px' }}>
+                                                                            <div style={{ fontSize: '10px', fontWeight: '800', color: '#6366f1', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                                                                Materiais e Acessórios Utilizados:
+                                                                            </div>
+                                                                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                                                {displayProducts.map((hp, hIdx) => (
+                                                                                    <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                                        <img 
+                                                                                            src={hp.product.photo} 
+                                                                                            alt={hp.product.name} 
+                                                                                            title={hp.product.name}
+                                                                                            style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} 
+                                                                                        />
                                                                                     </div>
                                                                                 ))}
                                                                             </div>
-                                                                        );
-                                                                    })()}
-                                                                    
-                                                                    {/* Materiais e Acessórios (MDF, Ferragens, Vidros) */}
-                                                                    {(() => {
-                                                                        const rawProducts = (item.products || []).filter(p => 
-                                                                            (p.product?.group_name === 'Ferragens' || p.product?.group_name === 'MDFs' || p.product?.group_name === 'Vidros') && p.product?.photo
-                                                                        );
-                                                                        
-                                                                        const uniqueProductsMap = new Map();
-                                                                        rawProducts.forEach(p => {
-                                                                            if (p.product && !uniqueProductsMap.has(p.product.id)) {
-                                                                                uniqueProductsMap.set(p.product.id, p);
-                                                                            }
-                                                                        });
-                                                                        const displayProducts = Array.from(uniqueProductsMap.values());
-                                                                        
-                                                                        if (displayProducts.length === 0) return null;
-
-                                                                        return (
-                                                                            <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '10px', marginTop: '15px' }}>
-                                                                                <div style={{ fontSize: '10px', fontWeight: '800', color: '#6366f1', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
-                                                                                    Materiais e Acessórios Utilizados:
-                                                                                </div>
-                                                                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                                                                    {displayProducts.map((hp, hIdx) => (
-                                                                                        <div key={hIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                                            <img 
-                                                                                                src={hp.product.photo} 
-                                                                                                alt={hp.product.name} 
-                                                                                                title={hp.product.name}
-                                                                                                style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} 
-                                                                                            />
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })()}
-                                                                </div>
-                                                            </td>
-                                                            <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', verticalAlign: 'top', fontSize: '16px', color: '#1e293b' }}>
-                                                                {maskCurrency(itemPrice)}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ width: '150px', textAlign: 'right', fontWeight: '900', fontSize: '16px', color: '#1e293b' }}>
+                                                            {maskCurrency(itemPrice)}
+                                                        </div>
+                                                    </div>
+                                                    </div>
+                                            );
+                                        })}
                                     </div>
 
-                                    {/* PAYMENT CONDITIONS */}
-                                    {(() => {
-                                        // Pick the most recent active payment method
-                                        const activeMethod = [...paymentMethods]
-                                            .filter(m => m.active === 1)
-                                            .slice(-1)[0]; // last inserted = most recent
-
-                                        if (!activeMethod || !activeMethod.conditions?.length) return null;
-
-                                        return (
-                                            <div style={{ marginBottom: '40px', pageBreakInside: 'avoid' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                                                    <div style={{ height: '3px', flex: 1, background: 'linear-gradient(90deg, #6366f1, transparent)' }} />
-                                                    <div style={{ fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#6366f1', whiteSpace: 'nowrap' }}>
-                                                        💳 Condições de Pagamento
-                                                    </div>
-                                                    <div style={{ height: '3px', flex: 1, background: 'linear-gradient(270deg, #6366f1, transparent)' }} />
-                                                </div>
-
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
-                                                    {(() => {
-                                                        return activeMethod.conditions.map((cond, idx) => {
-                                                            const total        = budgetTotal;
-                                                            const installments = cond.installments !== undefined ? Number(cond.installments) : 1;
-                                                            const isAVista     = installments === 0;
-
-                                                            const totalDiscountPct    = cond.discount_percentage || 0;
-
-                                                            const discountedTotal  = total * (1 - totalDiscountPct / 100);
-                                                            const financedTotal    = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
-                                                            const downPct          = cond.down_payment_percentage || 0;
-                                                            const downValue        = financedTotal * (downPct / 100);
-                                                            const remaining        = financedTotal - downValue;
-                                                            const installAmt       = installments > 0
-                                                                ? remaining / installments
-                                                                : financedTotal;
-
-                                                            return (
-                                                                <div key={idx} style={{
-                                                                    border: '1.5px solid #e2e8f0',
-                                                                    borderRadius: '12px',
-                                                                    padding: '14px 16px',
-                                                                    background: isAVista
-                                                                        ? 'linear-gradient(135deg, #f0fdf4, #dcfce7)'
-                                                                        : '#f8fafc',
-                                                                    borderColor: isAVista ? '#86efac' : '#e2e8f0',
-                                                                }}>
-                                                                    {/* Card title: Opção 1, Opção 2, ... */}
-                                                                    <div style={{ fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                                                                        Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
-                                                                    </div>
-
-                                                                    {/* Main descriptive text — reflects exactly what's configured */}
-                                                                    <div style={{ fontSize: '13px', color: isAVista ? '#15803d' : '#1e293b', fontWeight: '900', borderTop: '1px solid #cbd5e1', paddingTop: '6px', lineHeight: '1.6' }}>
-                                                                        {isAVista ? (
-                                                                            `À vista: ${maskCurrency(financedTotal)}`
-                                                                        ) : downPct > 0 ? (
-                                                                            <>
-                                                                                <div>Entrada de {downPct}%: <span style={{ color: '#6366f1' }}>{maskCurrency(downValue)}</span></div>
-                                                                                <div>+ {installments}x de <span style={{ color: '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
-                                                                            </>
-                                                                        ) : (
-                                                                            `${installments}x de ${maskCurrency(installAmt)}`
-                                                                        )}
-                                                                    </div>
-
-                                                                    {/* Discount percentage — shown below the payment text when > 0 */}
-                                                                    {(() => {
-                                                                        const discPct = cond.discount_percentage || 0;
-                                                                        return discPct > 0 ? (
-                                                                            <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
-                                                                                Desconto: {discPct.toFixed(2)}%
-                                                                            </div>
-                                                                        ) : null;
-                                                                    })()}
-                                                                </div>
-                                                             );
-                                                        });
-                                                    })()}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* FOOTER */}
-                                    <div style={{ marginTop: '40px', pageBreakInside: 'avoid' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '30px', padding: '25px', background: '#f1f5f9', borderRadius: '12px' }}>
+                                    {/* VALOR TOTAL + PAYMENT CONDITIONS — single block */}
+                                    <div className="print-block" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                                        {/* Valor total */}
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '30px', padding: '15px 25px', background: '#f8fafc', border: '1.5px solid #cbd5e1', borderRadius: '12px', marginBottom: '1em' }}>
                                             <div style={{ textAlign: 'right', borderRight: '1px solid #cbd5e1', paddingRight: '30px', display: 'flex', alignItems: 'center' }}>
                                                 <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 'bold' }}>
                                                     Prazo de entrega: <span style={{ color: '#10b981' }}>Em até 30 dias úteis</span>
@@ -2108,15 +2051,99 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <div style={{ fontSize: '32px', fontWeight: '900', color: '#10b981' }}>{maskCurrency(budgetTotal)}</div>
                                             </div>
                                         </div>
-                                        
-                                        <div style={{ marginTop: '24px', textAlign: 'center' }}>
-                                            <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: '600' }}>Validade da proposta: 10 dias corridos.</span>
-                                        </div>
 
-                                        <div style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', textAlign: 'center', marginTop: '24px' }}>
-                                            <div style={{ borderBottom: '1px solid #94a3b8', margin: '30px 40px 10px' }}></div>
-                                            <div style={{ fontSize: '12px', color: '#64748b' }}>Aceite do Cliente</div>
-                                        </div>
+                                        {/* Condições de Pagamento */}
+                                        {(() => {
+                                            const activeMethod = [...paymentMethods]
+                                                .filter(m => m.active === 1)
+                                                .slice(-1)[0];
+
+                                            if (!activeMethod || !activeMethod.conditions?.length) return null;
+
+                                            return (
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                                        <div style={{ height: '3px', flex: 1, background: 'linear-gradient(90deg, #6366f1, transparent)' }} />
+                                                        <div style={{ fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#6366f1', whiteSpace: 'nowrap' }}>
+                                                            💳 Condições de Pagamento
+                                                        </div>
+                                                        <div style={{ height: '3px', flex: 1, background: 'linear-gradient(270deg, #6366f1, transparent)' }} />
+                                                    </div>
+
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                                        {(() => {
+                                                            return activeMethod.conditions.map((cond, idx) => {
+                                                                const total        = budgetTotal;
+                                                                const installments = cond.installments !== undefined ? Number(cond.installments) : 1;
+                                                                const isAVista     = installments === 0;
+
+                                                                const totalDiscountPct    = cond.discount_percentage || 0;
+
+                                                                const discountedTotal  = total * (1 - totalDiscountPct / 100);
+                                                                const financedTotal    = discountedTotal * (1 + (cond.finance_cost_percentage || 0) / 100);
+                                                                const downPct          = cond.down_payment_percentage || 0;
+                                                                const downValue        = financedTotal * (downPct / 100);
+                                                                const remaining        = financedTotal - downValue;
+                                                                const installAmt       = installments > 0
+                                                                    ? remaining / installments
+                                                                    : financedTotal;
+
+                                                                return (
+                                                                    <div key={idx} style={{
+                                                                        border: '1.5px solid #e2e8f0',
+                                                                        borderRadius: '12px',
+                                                                        padding: '14px 16px',
+                                                                        background: isAVista
+                                                                            ? 'linear-gradient(135deg, #f0fdf4, #dcfce7)'
+                                                                            : '#f8fafc',
+                                                                        borderColor: isAVista ? '#86efac' : '#e2e8f0',
+                                                                    }}>
+                                                                        {/* Card title: Opção 1, Opção 2, ... */}
+                                                                        <div style={{ fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                                                                            Opção {idx + 1}{cond.title ? ` - ${cond.title}` : ''}
+                                                                        </div>
+
+                                                                        {/* Main descriptive text — reflects exactly what's configured */}
+                                                                        <div style={{ fontSize: '13px', color: isAVista ? '#15803d' : '#1e293b', fontWeight: '900', borderTop: '1px solid #cbd5e1', paddingTop: '6px', lineHeight: '1.6' }}>
+                                                                            {isAVista ? (
+                                                                                `À vista: ${maskCurrency(financedTotal)}`
+                                                                            ) : downPct > 0 ? (
+                                                                                <>
+                                                                                    <div>Entrada de {downPct}%: <span style={{ color: '#6366f1' }}>{maskCurrency(downValue)}</span></div>
+                                                                                    <div>+ {installments}x de <span style={{ color: '#6366f1' }}>{maskCurrency(installAmt)}</span></div>
+                                                                                </>
+                                                                            ) : (
+                                                                                `${installments}x de ${maskCurrency(installAmt)}`
+                                                                            )}
+                                                                        </div>
+
+                                                                        {/* Discount percentage — shown below the payment text when > 0 */}
+                                                                        {(() => {
+                                                                            const discPct = cond.discount_percentage || 0;
+                                                                            return discPct > 0 ? (
+                                                                                <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '4px' }}>
+                                                                                    Desconto: {discPct.toFixed(2)}%
+                                                                                </div>
+                                                                            ) : null;
+                                                                        })()}
+                                                                    </div>
+                                                                 );
+                                                            });
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    <div className="print-block" style={{ textAlign: 'center' }}>
+                                            <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: '600' }}>Validade da proposta: 10 dias corridos.</span>
+                                    </div>
+
+                                    <div className="print-block" style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', textAlign: 'center' }}>
+                                        <div style={{ borderBottom: '1px solid #94a3b8', margin: '30px 40px 10px' }}></div>
+                                        <div style={{ fontSize: '12px', color: '#64748b' }}>Aceite do Cliente</div>
+                                    </div>
                                         
                                         {(() => {
                                             const isImageAtt = (a) =>
@@ -2130,12 +2157,12 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
 
                                             return (
                                                 <>
-                                                    <div style={{ marginTop: '40px', fontSize: '11px', color: '#94a3b8', textAlign: 'center', pageBreakAfter: itemsWithImages.length > 0 ? 'always' : 'auto' }}>
+                                                    <div style={{ marginTop: '40px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
                                                         Documento gerado eletronicamente em {new Date().toLocaleString('pt-BR')} por {user?.name}.
                                                     </div>
 
                                                     {itemsWithImages.length > 0 && (
-                                                        <div style={{ marginTop: '40px' }}>
+                                                        <div style={{ marginTop: '40px', pageBreakBefore: 'always' }}>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px' }}>
                                                                 <div style={{ height: '3px', flex: 1, background: 'linear-gradient(90deg, #6366f1, transparent)' }} />
                                                                 <div style={{ fontSize: '18px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#6366f1', whiteSpace: 'nowrap' }}>
@@ -2149,8 +2176,8 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                 const images = atts.filter(isImageAtt);
                                                                 
                                                                 return (
-                                                                    <div key={item.id} style={{ marginBottom: '40px', pageBreakInside: 'avoid' }}>
-                                                                        <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', borderBottom: '2px solid #cbd5e1', paddingBottom: '8px', marginBottom: '16px', textTransform: 'uppercase' }}>
+                                                                    <div key={item.id} style={{ marginBottom: '40px' }}>
+                                                                        <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', borderBottom: '2px solid #cbd5e1', paddingBottom: '8px', marginBottom: '16px', textTransform: 'uppercase', pageBreakAfter: 'avoid' }}>
                                                                             {item.name}
                                                                         </h3>
                                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2159,7 +2186,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                                                     <img 
                                                                                         src={img.url} 
                                                                                         alt={`${item.name} - ${idx}`} 
-                                                                                        style={{ width: '100%', maxHeight: '600px', objectFit: 'contain', borderRadius: '8px' }} 
+                                                                                        style={{ width: '100%', maxHeight: '420px', objectFit: 'contain', borderRadius: '8px' }} 
                                                                                     />
                                                                                 </div>
                                                                             ))}
@@ -2173,6 +2200,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                             );
                                         })()}
 
+
                                         {/* Overlay de Imagem em Tela Cheia */}
                                         {fullscreenImage && (
                                             <div 
@@ -2183,7 +2211,6 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                                 <button style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}><X size={24} /></button>
                                             </div>
                                         )}
-                                    </div>
                                 </>
                             )}
                         </div>

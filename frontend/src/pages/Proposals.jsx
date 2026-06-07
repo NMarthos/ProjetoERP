@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Plus, Search, FileSearch, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle } from 'lucide-react';
+import { Plus, Search, FileSearch, FileText, X, CheckCircle, Clock, XCircle, Pencil, Trash2, UserCheck, User, UserPlus, CalendarPlus, BellRing, ClipboardCheck, Image, Paperclip, UploadCloud, File, Trash, Monitor, AlertCircle, RotateCcw } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import BudgetModal from './BudgetModal';
 import { PartnerModal } from './Partners';
 import BuildPresentationModal from './BuildPresentationModal';
+import ContractModal from './ContractModal';
 
 const maskCurrency = (v) => {
     if (!v) return 'R$ 0,00';
@@ -757,6 +758,200 @@ const EventModal = ({ proposal, onClose }) => {
 };
 
 
+// ── Modal para propostas APROVADAS (editar condições + gerar contrato) ───────
+const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSave, onGerarContrato }) => {
+    const [liveSettings, setLiveSettings] = useState(settingsProp);
+    const [paymentNotes, setPaymentNotes] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [saveMsg, setSaveMsg] = useState('');
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (!proposal) return;
+        setPaymentNotes(proposal.payment_notes || proposal.payment_methods || '');
+        let snap = null;
+        if (proposal.pricing_snapshot) {
+            try { snap = JSON.parse(proposal.pricing_snapshot); } catch(e) {}
+        }
+        if (snap && typeof snap === 'object') {
+            setLiveSettings(snap);
+        } else {
+            api.get('/settings').then(r => setLiveSettings(r.data)).catch(() => {});
+        }
+    }, [proposal]);
+
+    if (!proposal) return null;
+
+    let budgetItems = [];
+    try { budgetItems = proposal.budget_data ? JSON.parse(proposal.budget_data) : []; } catch(e) {}
+
+    const { taxes = 0, markup = 0, financeCost = 0 } = liveSettings || {};
+    const comm = proposal.referrer_commission || 0;
+    const divisor = 1 - (taxes/100) - (markup/100) - (financeCost/100) - (comm/100);
+    const calcSalePrice = (cost) => divisor > 0 ? cost / divisor : 0;
+    const grandTotal = budgetItems.reduce((acc, item) => {
+        const cost = item.products.reduce((s, p) => s + (p.total || 0), 0);
+        return acc + calcSalePrice(cost);
+    }, 0);
+
+    const handleSave = async () => {
+        setSaving(true); setError(''); setSaveMsg('');
+        try {
+            await api.put(`/proposals/${proposal.id}`, {
+                payment_notes: paymentNotes,
+                payment_methods: paymentNotes,
+            });
+            setSaveMsg('Salvo com sucesso!');
+            if (onSave) onSave();
+            setTimeout(() => setSaveMsg(''), 2500);
+        } catch(e) {
+            setError('Erro ao salvar: ' + (e.response?.data?.error || e.message));
+        }
+        setSaving(false);
+    };
+
+    const handleGerarContrato = async () => {
+        // Salva antes de gerar
+        setSaving(true); setError('');
+        try {
+            await api.put(`/proposals/${proposal.id}`, {
+                payment_notes: paymentNotes,
+                payment_methods: paymentNotes,
+            });
+            if (onSave) onSave();
+        } catch(e) {
+            setError('Erro ao salvar condições: ' + (e.response?.data?.error || e.message));
+            setSaving(false);
+            return;
+        }
+        setSaving(false);
+        // Abrir modal de contrato
+        if (onGerarContrato) onGerarContrato(proposal);
+    };
+
+    return createPortal(
+        <div className="modal-overlay" onClick={onClose}>
+            <div
+                className="modal-content"
+                style={{ maxWidth: '780px', width: '95%', padding: 0, overflow: 'hidden', borderRadius: '16px', display: 'flex', flexDirection: 'column', maxHeight: '92vh' }}
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                    <div>
+                        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', marginBottom: '4px' }}>Proposta Aprovada</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#fff' }}>{proposal.partner_name}</div>
+                        <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>#{proposal.id} • {proposal.partner_phone || ''}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Valor Total</div>
+                        <div style={{ fontSize: '2rem', fontWeight: '900', color: '#fff' }}>{maskCurrency(grandTotal)}</div>
+                        <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginTop: '2px' }}>Aprovada em: {proposal.phase_date ? new Date(proposal.phase_date).toLocaleDateString('pt-BR') : '-'}</div>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto', flex: 1, background: 'var(--card-bg)' }}>
+
+                    {/* Itens do orçamento */}
+                    <div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.75rem' }}>Itens do Orçamento</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {budgetItems.length === 0 ? (
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Sem itens registrados.</div>
+                            ) : budgetItems.map((item, i) => {
+                                const cost = item.products.reduce((s, p) => s + (p.total || 0), 0);
+                                const price = calcSalePrice(cost);
+                                return (
+                                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '0.7rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                                        <div>
+                                            <div style={{ fontWeight: '700', fontSize: '0.93rem' }}>{item.name}</div>
+                                            {item.description && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>{item.description}</div>}
+                                        </div>
+                                        <div style={{ fontWeight: '800', color: '#10b981', fontSize: '1rem', whiteSpace: 'nowrap', marginLeft: '1rem' }}>{maskCurrency(price)}</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Condições de pagamento — editável */}
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800' }}>Condições de Pagamento</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Editável — clique no texto para alterar</div>
+                        </div>
+                        <textarea
+                            value={paymentNotes}
+                            onChange={e => setPaymentNotes(e.target.value)}
+                            rows={6}
+                            style={{
+                                width: '100%',
+                                padding: '0.85rem 1rem',
+                                background: 'rgba(16,185,129,0.06)',
+                                border: '1.5px solid rgba(16,185,129,0.35)',
+                                borderRadius: '10px',
+                                fontSize: '0.9rem',
+                                lineHeight: '1.7',
+                                color: 'var(--text)',
+                                resize: 'vertical',
+                                fontFamily: 'inherit',
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                            }}
+                            placeholder="Descreva aqui as condições de pagamento acordadas..."
+                        />
+                    </div>
+
+                    {/* Observações */}
+                    {proposal.description && (
+                        <div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800', marginBottom: '0.75rem' }}>Observações</div>
+                            <div style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                                {proposal.description}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Feedback */}
+                    {error && <div style={{ padding: '0.75rem 1rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '0.85rem' }}>{error}</div>}
+                    {saveMsg && <div style={{ padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', color: '#10b981', fontSize: '0.85rem' }}>✓ {saveMsg}</div>}
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card-bg)', flexShrink: 0 }}>
+                    <button
+                        onClick={onClose}
+                        style={{ padding: '10px 20px', borderRadius: '10px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontWeight: '600', fontSize: '0.88rem' }}
+                    >
+                        Fechar
+                    </button>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            style={{ padding: '10px 20px', borderRadius: '10px', border: '1px solid var(--primary)', background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '0.88rem', opacity: saving ? 0.7 : 1 }}
+                        >
+                            {saving ? 'Salvando...' : '💾 Salvar Alterações'}
+                        </button>
+                        <button
+                            onClick={handleGerarContrato}
+                            disabled={saving}
+                            style={{ padding: '10px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '800', fontSize: '0.88rem', opacity: saving ? 0.7 : 1, boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}
+                        >
+                            📄 Gerar Contrato
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
+
+
+
 const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settingsProp, onPrint }) => {
     const [form, setForm] = useState({ 
         status: 'ABERTO', 
@@ -1477,6 +1672,8 @@ const Proposals = ({ user }) => {
     const [selectedProposal, setSelectedProposal] = useState(null);
     const [eventModalData, setEventModalData] = useState({ show: false, proposal: null });
     const [completionModalData, setCompletionModalData] = useState({ show: false, proposal: null });
+    const [approvedModalData, setApprovedModalData] = useState({ show: false, proposal: null });
+    const [contractModalData, setContractModalData] = useState({ show: false, proposal: null });
     const [budgetModalData, setBudgetModalData] = useState({ show: false, proposal: null });
     const [presentationModalData, setPresentationModalData] = useState({ show: false, proposal: null });
     const [attachmentsModalData, setAttachmentsModalData] = useState({ show: false, proposal: null });
@@ -1515,6 +1712,16 @@ const Proposals = ({ user }) => {
         if (!window.confirm('Excluir este orçamento permanentemente?')) return;
         await api.delete(`/proposals/${id}`);
         fetchProposals();
+    };
+
+    const handleReopenProposal = async (id) => {
+        if (!window.confirm('Reabrir esta proposta e mover para status Aberta?')) return;
+        try {
+            await api.put(`/proposals/${id}`, { status: 'ABERTO' });
+            fetchProposals();
+        } catch (e) {
+            alert('Erro ao reabrir proposta: ' + (e.response?.data?.error || e.message));
+        }
     };
 
     const statusConfig = {
@@ -1571,16 +1778,15 @@ const Proposals = ({ user }) => {
 
             <div className="glass card" style={{ marginBottom: '2rem', padding: '1rem', display: 'flex', gap: '1rem' }}>
                 <div style={{ flex: 1, position: 'relative' }}>
-                    <FileSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
                     <input 
                         type="text" 
                         placeholder="Buscar por cliente, descrição ou número..." 
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        style={{ width: '100%', padding: '12px 12px 12px 45px', borderRadius: '10px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
+                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
                     />
                 </div>
-                <button onClick={fetchProposals} className="btn-icon" title="Atualizar"><BellRing size={20} /></button>
+                <button onClick={fetchProposals} className="btn-icon" title="Pesquisar"><Search size={20} /></button>
             </div>
 
             {/* Tabs de Status */}
@@ -1657,17 +1863,40 @@ const Proposals = ({ user }) => {
                                                 <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                        <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
-                                                        <button onClick={() => setPresentationModalData({ show: true, proposal: p })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
-                                                        <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
-                                                        {p.status === 'ABERTO' && (
-                                                            <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
-                                                        )}
-                                                        <button onClick={() => setAttachmentsModalData({ show: true, proposal: p })} title="Anexos da Proposta" style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer' }}><Paperclip size={18} /></button>
-                                                        {canModify && (
+                                                        {p.status === 'APROVADO' ? (
                                                             <>
-                                                                <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
-                                                                <button onClick={() => handleDelete(p.id)} title="Excluir" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                                                {/* Ver dados da proposta + condição de pagamento */}
+                                                                <button
+                                                                    onClick={() => setApprovedModalData({ show: true, proposal: p })}
+                                                                    title="Ver dados da proposta e condição de pagamento"
+                                                                    style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}
+                                                                >
+                                                                    <ClipboardCheck size={18} />
+                                                                </button>
+                                                                {/* Reabrir proposta */}
+                                                                <button
+                                                                    onClick={() => handleReopenProposal(p.id)}
+                                                                    title="Mover para Aberta"
+                                                                    style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}
+                                                                >
+                                                                    <RotateCcw size={18} />
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
+                                                                <button onClick={() => setPresentationModalData({ show: true, proposal: p })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
+                                                                <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
+                                                                {p.status === 'ABERTO' && (
+                                                                    <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
+                                                                )}
+                                                                <button onClick={() => setAttachmentsModalData({ show: true, proposal: p })} title="Anexos da Proposta" style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer' }}><Paperclip size={18} /></button>
+                                                                {canModify && (
+                                                                    <>
+                                                                        <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
+                                                                        <button onClick={() => handleDelete(p.id)} title="Excluir" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                                                    </>
+                                                                )}
                                                             </>
                                                         )}
                                                     </div>
@@ -1685,6 +1914,25 @@ const Proposals = ({ user }) => {
             {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
             {attachmentsModalData.show && <AttachmentsModal proposal={attachmentsModalData.proposal} onClose={() => setAttachmentsModalData({ show: false, proposal: null })} />}
             {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => setEventModalData({ show: false, proposal: null })} />}
+            {approvedModalData.show && (
+                <ApprovedProposalModal
+                    proposal={approvedModalData.proposal}
+                    settings={settings}
+                    onClose={() => setApprovedModalData({ show: false, proposal: null })}
+                    onSave={fetchProposals}
+                    onGerarContrato={(p) => {
+                        setApprovedModalData({ show: false, proposal: null });
+                        setContractModalData({ show: true, proposal: p });
+                    }}
+                />
+            )}
+            {contractModalData.show && (
+                <ContractModal
+                    proposal={contractModalData.proposal}
+                    settings={settings}
+                    onClose={() => setContractModalData({ show: false, proposal: null })}
+                />
+            )}
             {completionModalData.show && <ProposalCompletionModal
                 proposal={completionModalData.proposal}
                 settings={settings}
