@@ -299,11 +299,26 @@ const AttachmentsModal = ({ proposal, onClose }) => {
     );
 };
 
+const getTodayDateString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const getCurrentTimeString = () => {
+    const today = new Date();
+    const hh = String(today.getHours()).padStart(2, '0');
+    const min = String(today.getMinutes()).padStart(2, '0');
+    return `${hh}:${min}`;
+};
+
 const EventModal = ({ proposal, onClose }) => {
     const [events, setEvents] = useState([]);
     const [history, setHistory] = useState([]);
     const [activeTab, setActiveTab] = useState('eventos');
-    const [form, setForm] = useState({ title: '', event_date: '', event_time: '', description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false });
+    const [form, setForm] = useState({ title: '', event_date: getTodayDateString(), event_time: getCurrentTimeString(), description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false });
     const [saving, setSaving] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [eventAttachments, setEventAttachments] = useState([]);
@@ -311,7 +326,7 @@ const EventModal = ({ proposal, onClose }) => {
     const [cardUploadingId, setCardUploadingId] = useState(null);
     const eventFileRef = useRef(null);
 
-    const EMPTY_FORM = { title: '', event_date: '', event_time: '', description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false };
+    const EMPTY_FORM = { title: '', event_date: getTodayDateString(), event_time: getCurrentTimeString(), description: '', type: 'Levantamento de medidas', event_status: 'ABERTO', monitor: false };
 
     useEffect(() => {
         fetchEvents();
@@ -330,18 +345,6 @@ const EventModal = ({ proposal, onClose }) => {
 
     const handleSaveEvent = async (e) => {
         e.preventDefault();
-        if (form.type === 'Levantamento de medidas') {
-            const desc = form.description || '';
-            const descLower = desc.toLowerCase();
-            const hasLogradouro = descLower.includes('logradouro');
-            const hasNumero = descLower.includes('numero') || descLower.includes('número');
-            const hasComplemento = descLower.includes('complemento');
-            
-            if (!hasLogradouro || !hasNumero || !hasComplemento) {
-                alert('Para Levantamento de Medidas, informe na Descrição os campos:\nLogradouro:\nNumero:\nComplemento:');
-                return;
-            }
-        }
         setSaving(true);
         if (editingId) {
             await api.put(`/events/${editingId}`, form);
@@ -465,7 +468,7 @@ const EventModal = ({ proposal, onClose }) => {
                         <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.4rem' }}>
                             <CalendarPlus size={22} color="var(--primary)" /> Agenda da Proposta
                         </h2>
-                        <p style={{ color: 'var(--text-muted)', margin: '4px 0 0', fontSize: '0.88rem' }}>#{proposal.id} — {proposal.description}</p>
+                        <p style={{ color: 'var(--text-muted)', margin: '4px 0 0', fontSize: '0.88rem' }}>#{proposal.id}</p>
                     </div>
                     <button onClick={onClose} className="btn-icon"><X /></button>
                 </div>
@@ -502,29 +505,7 @@ const EventModal = ({ proposal, onClose }) => {
                                     <select 
                                         required 
                                         value={form.type} 
-                                        onChange={e => {
-                                            const val = e.target.value;
-                                            let desc = form.description || '';
-                                            if (val === 'Levantamento de medidas') {
-                                                if (desc.trim() === '' || !desc.toLowerCase().includes('logradouro')) {
-                                                    desc = 'Logradouro: \nNumero: \nComplemento: ';
-                                                }
-                                            } else {
-                                                // Remove address template lines
-                                                desc = desc
-                                                    .split('\n')
-                                                    .filter(line => {
-                                                        const l = line.trim().toLowerCase();
-                                                        return !l.startsWith('logradouro:') && 
-                                                               !l.startsWith('numero:') && 
-                                                               !l.startsWith('número:') && 
-                                                               !l.startsWith('complemento:');
-                                                    })
-                                                    .join('\n')
-                                                    .trim();
-                                            }
-                                            setForm({ ...form, type: val, description: desc });
-                                        }}
+                                        onChange={e => setForm({ ...form, type: e.target.value })}
                                         style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
                                     >
                                         <option value="Levantamento de medidas">Levantamento de medidas</option>
@@ -547,7 +528,7 @@ const EventModal = ({ proposal, onClose }) => {
                                     <textarea 
                                         value={form.description} 
                                         onChange={e => setForm({ ...form, description: e.target.value })} 
-                                        placeholder={form.type === 'Levantamento de medidas' ? "Logradouro:\nNumero:\nComplemento:" : "Detalhes adicionais..."} 
+                                        placeholder="Detalhes adicionais..." 
                                         style={{ minHeight: '100px', resize: 'vertical' }} 
                                     />
                                 </div>

@@ -7,6 +7,23 @@ import {
 } from 'lucide-react';
 import { maskPhone } from '../utils/masks';
 
+const formatToBrasiliaTime = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+        let dateObj;
+        if (!dateStr.includes('T') && !dateStr.includes('Z') && !dateStr.includes('-03:00')) {
+            dateObj = new Date(dateStr.replace(' ', 'T') + 'Z');
+        } else {
+            dateObj = new Date(dateStr);
+        }
+        if (isNaN(dateObj.getTime())) return dateStr;
+        return dateObj.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateStr;
+    }
+};
+
 const BuildPresentationModal = ({ proposal, user, onClose }) => {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -48,6 +65,7 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
     const [publishHistory, setPublishHistory] = useState([]);
     const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
     const [isPublishing, setIsPublishing] = useState(false);
+    const [accessLogs, setAccessLogs] = useState([]);
 
     useEffect(() => {
         if (!proposal?.id) return;
@@ -115,7 +133,18 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                 console.error("Erro ao buscar histórico de publicações:", err);
             }
         };
-        if (proposal?.id) fetchHistory();
+        const fetchAccessLogs = async () => {
+            try {
+                const response = await api.get(`/proposals/${proposal.id}/presentation-access`);
+                setAccessLogs(response.data || []);
+            } catch (err) {
+                console.error("Erro ao buscar histórico de acessos:", err);
+            }
+        };
+        if (proposal?.id) {
+            fetchHistory();
+            fetchAccessLogs();
+        }
     }, [proposal, publishData]);
 
     const saveBudgetData = async (updatedItems) => {
@@ -562,6 +591,13 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                     <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', display: 'block', textTransform: 'uppercase', letterSpacing: '1px' }}>Token</span>
                                     <span style={{ color: 'white', fontWeight: '800', fontSize: '1.2rem', letterSpacing: '2px' }}>{publishData.token}</span>
                                 </div>
+                                <div style={{ width: '1px', height: '30px', background: 'rgba(255,255,255,0.1)' }}></div>
+                                <div>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', display: 'block', textTransform: 'uppercase', letterSpacing: '1px' }}>Acessos</span>
+                                    <span style={{ color: '#10b981', fontWeight: '800', fontSize: '1.2rem' }}>
+                                        {accessLogs.filter(l => l.token === publishData.token).length}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         <button 
@@ -615,37 +651,106 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                     const isActive = (proposal.presentation_token && pubToken === proposal.presentation_token);
 
                                     return (
-                                        <div key={pub.id || idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: isActive ? 'rgba(99, 102, 241, 0.15)' : 'rgba(0,0,0,0.2)', borderRadius: '6px', border: isActive ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    {pub.event_date} às {pub.event_time}
+                                        <div key={pub.id || idx} style={{ 
+                                            display: 'grid', 
+                                            gridTemplateColumns: '1fr 140px 220px', 
+                                            alignItems: 'center', 
+                                            gap: '16px', 
+                                            padding: '12px 16px', 
+                                            background: isActive ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.02)', 
+                                            borderRadius: '8px', 
+                                            border: isActive ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid rgba(255, 255, 255, 0.05)' 
+                                        }}>
+                                            {/* Left Column: Link, Copy Button, Dates */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <a href={linkHref} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: '600', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '280px' }}>
+                                                        {window.location.origin + linkHref}
+                                                    </a>
+                                                    <button 
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(`Acesse a apresentação do seu projeto aqui: ${window.location.origin + linkHref} \nSeu Token de Acesso: ${pubToken}`);
+                                                            alert('Link e token copiados para a área de transferência!');
+                                                        }}
+                                                        title="Copiar Link e Token"
+                                                        style={{
+                                                            background: 'rgba(255,255,255,0.05)',
+                                                            border: 'none',
+                                                            color: 'rgba(255,255,255,0.7)',
+                                                            padding: '3px 8px',
+                                                            borderRadius: '4px',
+                                                            cursor: 'pointer',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            fontSize: '0.65rem',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                        onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                                                        onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                                                    >
+                                                        <Copy size={11} /> Copiar
+                                                    </button>
                                                     {isActive ? (
-                                                        <span style={{ fontSize: '0.65rem', background: 'var(--primary)', color: 'white', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: '800' }}>Último (Ativo)</span>
+                                                        <span style={{ fontSize: '0.6rem', background: 'var(--primary)', color: 'white', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase', fontWeight: '800' }}>Último (Ativo)</span>
                                                     ) : (
-                                                        <span style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: '800' }}>Inativo</span>
+                                                        <span style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase', fontWeight: '800' }}>Inativo</span>
                                                     )}
-                                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>
-                                                        (Por: {pub.creator_name || 'Usuário'})
-                                                    </span>
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)', display: 'flex', gap: '12px' }}>
-                                                    <span>
-                                                        <strong style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>Link: </strong>
-                                                        <a href={linkHref} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--primary)', textDecoration: 'none' }}>
-                                                            {linkHref}
-                                                        </a>
-                                                    </span>
+                                                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                    <div>
+                                                        <strong>Criação:</strong> {pub.event_date} às {pub.event_time} 
+                                                        <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: '4px' }}>(Por: {pub.creator_name || 'Usuário'})</span>
+                                                    </div>
                                                     {expireText && (
-                                                        <span>
-                                                            <strong style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>Expira: </strong>
-                                                            {expireText}
-                                                        </span>
+                                                        <div>
+                                                            <strong>Expiração:</strong> {expireText}
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
-                                            <div style={{ textAlign: 'right', minWidth: '80px' }}>
-                                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Token</div>
-                                                <div style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '1rem', letterSpacing: '1px' }}>{pubToken}</div>
+
+                                            {/* Center Column: Token */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                                <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Token</span>
+                                                <span style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '1rem', letterSpacing: '1px', background: 'rgba(255,255,255,0.03)', padding: '3px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    {pubToken}
+                                                </span>
+                                            </div>
+
+                                            {/* Right Column: Access Count & Logs with Latest Highlighted */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', width: '100%' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Acessos:</span>
+                                                    <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '0.9rem', background: 'rgba(16, 185, 129, 0.1)', padding: '1px 6px', borderRadius: '4px' }}>
+                                                        {accessLogs.filter(l => l.token === pubToken).length}
+                                                    </span>
+                                                </div>
+                                                {accessLogs.filter(l => l.token === pubToken).length > 0 && (
+                                                    <div style={{ 
+                                                        fontSize: '0.65rem', 
+                                                        color: 'rgba(255,255,255,0.4)', 
+                                                        maxHeight: '50px', 
+                                                        overflowY: 'auto', 
+                                                        width: '100%', 
+                                                        display: 'flex', 
+                                                        flexDirection: 'column', 
+                                                        gap: '2px', 
+                                                        textAlign: 'right',
+                                                        paddingRight: '2px'
+                                                    }}>
+                                                        {accessLogs.filter(l => l.token === pubToken).map((log, lIdx) => (
+                                                            <div key={lIdx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                                                                {lIdx === 0 && (
+                                                                    <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '0.75rem' }} title="Último Acesso">➔</span>
+                                                                )}
+                                                                <span style={{ color: lIdx === 0 ? '#10b981' : 'rgba(255,255,255,0.4)', fontWeight: lIdx === 0 ? '600' : 'normal' }}>
+                                                                    {formatToBrasiliaTime(log.accessed_at)}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );

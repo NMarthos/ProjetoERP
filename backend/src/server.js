@@ -730,7 +730,7 @@ async function start() {
                     FROM proposal_events e
                     LEFT JOIN users u ON e.user_id = u.id
                     WHERE e.proposal_id=? AND e.tenant_id=?
-                    ORDER BY e.id ASC`, [req.params.id, req.tenantId]);
+                    ORDER BY e.event_date DESC, e.event_time DESC, e.id DESC`, [req.params.id, req.tenantId]);
                 res.json(events);
             } catch (err) {
                 res.status(500).json({ error: 'Erro ao buscar eventos' });
@@ -920,6 +920,16 @@ async function start() {
             }
         });
 
+        app.get('/api/proposals/:id/presentation-access', authMiddleware, async (req, res) => {
+            try {
+                const logs = await db.all('SELECT * FROM presentation_access_logs WHERE proposal_id = ? ORDER BY accessed_at DESC', [req.params.id]);
+                res.json(logs);
+            } catch (err) {
+                console.error("GET presentation-access error:", err);
+                res.status(500).json({ error: 'Erro ao buscar logs de acesso' });
+            }
+        });
+
         app.post('/api/public/proposals/:id/verify-token', async (req, res) => {
             const { token } = req.body;
             try {
@@ -941,6 +951,15 @@ async function start() {
 
                 if (new Date(proposal.presentation_token_expires) < new Date()) {
                     return res.status(401).json({ error: 'Token expirado' });
+                }
+
+                // Record presentation access log with Brasília Time (GMT-3)
+                try {
+                    const brasiliaTime = new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }) + '-03:00';
+                    await db.run('INSERT INTO presentation_access_logs (proposal_id, token, accessed_at) VALUES (?, ?, ?)',
+                        [proposal.id, token.trim().toUpperCase(), brasiliaTime]);
+                } catch (logErr) {
+                    console.error("Error inserting presentation access log:", logErr);
                 }
 
                 const payment_methods = await db.all('SELECT * FROM payment_methods WHERE tenant_id = ? ORDER BY id ASC', [proposal.tenant_id]);

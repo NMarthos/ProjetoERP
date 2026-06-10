@@ -353,6 +353,17 @@ async function initializeDatabase(db) {
         )
     `);
 
+    // Presentation Access Logs Table
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS presentation_access_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_id INTEGER NOT NULL,
+            token TEXT NOT NULL,
+            accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (proposal_id) REFERENCES proposals(id)
+        )
+    `);
+
     // Events Table
     await db.exec(`
         CREATE TABLE IF NOT EXISTS proposal_events (
