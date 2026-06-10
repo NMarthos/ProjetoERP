@@ -251,7 +251,7 @@ async function start() {
                             await db.run(
                                 `INSERT INTO products (tenant_id, name, unit, value, manufacturer_id, status, group_name, updated_at) 
                                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-                                [req.tenantId, fbName, 'M', 0, null, 1, 'Fita']
+                                [req.tenantId, fbName, 'M', 0, null, 1, 'Fitas']
                             );
                         }
                     }
@@ -331,7 +331,12 @@ async function start() {
                     SELECT p.*, pt.name as partner_name, pt.phone as partner_phone, pt.email as partner_email, 
                     u.name as creator_name,
                     ref_p.commission_percentage as referrer_commission,
-                    (SELECT COUNT(*) FROM proposal_events e WHERE e.proposal_id = p.id AND e.monitor = 1) as has_monitored_event 
+                    (SELECT COUNT(*) FROM proposal_events e WHERE e.proposal_id = p.id AND e.monitor = 1) as has_monitored_event,
+                    (SELECT title FROM proposal_events e WHERE e.proposal_id = p.id ORDER BY e.id DESC LIMIT 1) as last_event_title,
+                    (SELECT event_date FROM proposal_events e WHERE e.proposal_id = p.id ORDER BY e.id DESC LIMIT 1) as last_event_date,
+                    (SELECT event_time FROM proposal_events e WHERE e.proposal_id = p.id ORDER BY e.id DESC LIMIT 1) as last_event_time,
+                    (SELECT monitor FROM proposal_events e WHERE e.proposal_id = p.id ORDER BY e.id DESC LIMIT 1) as last_event_monitor,
+                    (SELECT COUNT(*) FROM proposal_attachments a WHERE a.proposal_id = p.id) as attachment_count
                     FROM proposals p 
                     JOIN partners pt ON p.partner_id = pt.id 
                     LEFT JOIN users u ON p.user_id = u.id
@@ -389,6 +394,35 @@ async function start() {
 
                 await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
                     [req.tenantId, result.lastID, null, newPhase, req.user.id]);
+
+                // Create initial event "Proposta criada"
+                try {
+                    const today = new Date();
+                    const eventDate = today.toISOString().split('T')[0];
+                    const eventTime = today.toTimeString().split(' ')[0].substring(0, 5);
+                    await db.run('INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [req.tenantId, result.lastID, eventDate, eventTime, 'Proposta criada', 'Orçamento/Proposta de projeto registrado inicialmente no sistema.', 'Outro', 'FECHADO', 0, req.user.id]);
+                } catch (eventErr) {
+                    console.error("[POST proposals] Error creating initial event:", eventErr);
+                }
+
+                // Create folder in PastaBase if defined
+                try {
+                    const partner = await db.get('SELECT name FROM partners WHERE id = ? AND tenant_id = ?', [partner_id, req.tenantId]);
+                    const clientName = partner ? partner.name : 'Cliente';
+                    const pastaBaseParam = await db.get('SELECT value FROM tenant_parameters WHERE tenant_id = ? AND key = "COMERCIAL_PASTABASE"', [req.tenantId]);
+                    if (pastaBaseParam && pastaBaseParam.value) {
+                        const year = new Date().getFullYear();
+                        const proposalNumber = String(result.lastID).padStart(4, '0');
+                        const folderName = `${year}${proposalNumber}-${clientName.toUpperCase()}`;
+                        const targetDir = path.join(pastaBaseParam.value, folderName);
+                        if (!fs.existsSync(targetDir)) {
+                            fs.mkdirSync(targetDir, { recursive: true });
+                        }
+                    }
+                } catch (folderErr) {
+                    console.error("[POST proposals] Error creating project folder:", folderErr);
+                }
 
                 res.status(201).json({ id: result.lastID });
             } catch (err) {

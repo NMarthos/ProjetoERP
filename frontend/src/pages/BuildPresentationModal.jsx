@@ -1069,9 +1069,6 @@ const BuildPresentationModal = ({ proposal, user, onClose }) => {
                                         message: 'Para visualizar a apresentação, inclua pelo menos um ambiente e uma foto ativa.'
                                     });
                                 }
-                                
-                                const budgetDivs = checkDivergences();
-                                divs.push(...budgetDivs);
 
                                 if (divs.length > 0) {
                                     setDivergences(divs);

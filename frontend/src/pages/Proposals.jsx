@@ -1718,14 +1718,13 @@ const Proposals = ({ user }) => {
                                     <th>Parceiro / Cliente</th>
                                     <th>Criado em</th>
                                     <th>Status</th>
-                                    <th>Data da Fase</th>
-                                    <th>Valor</th>
+                                    <th>Último evento</th>
                                     <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.length === 0 ? (
-                                    <tr><td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
+                                    <tr><td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
                                 ) : (
                                     filtered.map(p => {
                                         const cfg = statusConfig[p.status] || statusConfig.ABERTO;
@@ -1746,10 +1745,18 @@ const Proposals = ({ user }) => {
                                                         {cfg.icon} {cfg.label || p.status}
                                                     </span>
                                                 </td>
-                                                <td style={{ fontSize: '0.85rem' }}>
-                                                    {p.phase_date ? new Date(p.phase_date).toLocaleDateString('pt-BR') : '-'}
+                                                <td>
+                                                    {p.last_event_title ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
+                                                            {p.last_event_monitor === 1 && <BellRing size={14} color="#eab308" title="Monitorado" />}
+                                                            <span>
+                                                                {p.last_event_title} - {p.last_event_date ? new Date(p.last_event_date + 'T00:00:00').toLocaleDateString('pt-BR') : ''}{p.last_event_time ? ` ${p.last_event_time}` : ''}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>-</span>
+                                                    )}
                                                 </td>
-                                                <td style={{ fontWeight: '700' }}>{maskCurrency(p.value)}</td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                         {p.status === 'APROVADO' ? (
@@ -1779,7 +1786,18 @@ const Proposals = ({ user }) => {
                                                                 {p.status === 'ABERTO' && (
                                                                     <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
                                                                 )}
-                                                                <button onClick={() => setAttachmentsModalData({ show: true, proposal: p })} title="Anexos da Proposta" style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer' }}><Paperclip size={18} /></button>
+                                                                <button 
+                                                                    onClick={() => setAttachmentsModalData({ show: true, proposal: p })} 
+                                                                    title="Anexos da Proposta" 
+                                                                    style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                                                >
+                                                                    <Paperclip size={18} />
+                                                                    {p.attachment_count > 0 && (
+                                                                        <span style={{ fontSize: '0.72rem', fontWeight: 'bold', background: '#a78bfa', color: '#111', borderRadius: '10px', padding: '1px 5px', lineHeight: 1 }}>
+                                                                            {p.attachment_count}
+                                                                        </span>
+                                                                    )}
+                                                                </button>
                                                                 {canModify && (
                                                                     <>
                                                                         <button onClick={() => handleEdit(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><Pencil size={18} /></button>
@@ -1802,7 +1820,7 @@ const Proposals = ({ user }) => {
 
             {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
             {attachmentsModalData.show && <AttachmentsModal proposal={attachmentsModalData.proposal} onClose={() => setAttachmentsModalData({ show: false, proposal: null })} />}
-            {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => setEventModalData({ show: false, proposal: null })} />}
+            {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => { setEventModalData({ show: false, proposal: null }); fetchProposals(); }} />}
             {approvedModalData.show && (
                 <ApprovedProposalModal
                     proposal={approvedModalData.proposal}

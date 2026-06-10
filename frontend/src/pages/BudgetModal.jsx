@@ -329,11 +329,6 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
             if (!p.name.toLowerCase().includes(search.toLowerCase())) return false;
         }
 
-        // Se o grupo selecionado for Fitas, filtra apenas as sugeridas
-        if (selectedGroup === 'Fitas') {
-            return suggestedEdgeBands.some(sugg => sugg.id === p.id);
-        }
-
         return true;
     });
 
@@ -1426,7 +1421,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                         }} 
                         style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #eab308', background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
-                        Gerar Proposta <LayoutGrid size={18} />
+                        Proposta <LayoutGrid size={18} />
                     </button>
                     <button 
                         onClick={() => setShowPresentationModal(true)} 
@@ -1435,9 +1430,14 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                         Apresentação <Image size={18} />
                     </button>
                     <button onClick={() => { setPrintType('MATERIALS'); setShowPrint(true); }} style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        Lista de Materiais <ClipboardList size={18} />
+                        Materiais - Projeto <ClipboardList size={18} />
                     </button>
-                    <button onClick={handleClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontWeight: '600' }}>Fechar / Cancelar</button>
+                    {activeItemId && (
+                        <button onClick={() => { setPrintType('SELECTED_MATERIALS'); setShowPrint(true); }} style={{ padding: '10px 20px', borderRadius: '8px', border: '2px solid #a855f7', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', cursor: 'pointer', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            Materiais - Ambiente <ClipboardList size={18} />
+                        </button>
+                    )}
+                    <button onClick={handleClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontWeight: '600' }}>Fechar</button>
                 </div>
 
                 {/* PRINT PREVIEW OVERLAY */}
@@ -1555,7 +1555,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                         </div>
 
                         <div className="print-container" style={{ maxWidth: printType === 'PRESENTATION' ? '100%' : '850px', margin: '0 auto', fontFamily: "'Inter', 'Segoe UI', sans-serif", color: '#1e293b' }}>
-                            {printType === 'MATERIALS' ? (
+                            {printType === 'MATERIALS' || printType === 'SELECTED_MATERIALS' ? (
                                 <>
                                     {/* HEADER */}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', borderBottom: '3px solid #6366f1', paddingBottom: '25px' }}>
@@ -1582,7 +1582,7 @@ const BudgetModal = ({ proposal, settings, user, onClose, onSave, autoShowPrint 
                                     </div>
 
                                     {/* GROUPED BY ITEM */}
-                                    {budgetItems.map(item => {
+                                    {(printType === 'SELECTED_MATERIALS' ? budgetItems.filter(item => item.id === activeItemId) : budgetItems).map(item => {
                                         const services = item.products.filter(sp => ['DIA', 'DF', 'DM'].includes(sp.product.unit?.toUpperCase()));
                                         const materials = item.products.filter(sp => !['DIA', 'DF', 'DM'].includes(sp.product.unit?.toUpperCase()));
                                         const subTotalMaterial = materials.reduce((acc, p) => acc + p.total, 0);
