@@ -436,7 +436,7 @@ async function start() {
             const body = req.body;
             try {
                 // Permission Check: Owner or Admin
-                const proposal = await db.get('SELECT user_id, phase FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
+                const proposal = await db.get('SELECT user_id, phase, status FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
                 if (!proposal) return res.status(404).json({ error: 'Orçamento não encontrado' });
                 
                 const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'ADM';
@@ -472,6 +472,16 @@ async function start() {
                 await db.run('BEGIN TRANSACTION');
                 try {
                     await db.run(query, params);
+                    
+                    if (body.status !== undefined && body.status !== proposal.status) {
+                        const today = new Date();
+                        const eventDate = today.toISOString().split('T')[0];
+                        const eventTime = today.toTimeString().split(' ')[0].substring(0, 5);
+                        await db.run(
+                            'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            [req.tenantId, req.params.id, eventDate, eventTime, 'Status alterado', `O status da proposta foi alterado de ${proposal.status || 'ABERTO'} para ${body.status}.`, 'Anotacao', 'FECHADO', 0, req.user.id]
+                        );
+                    }
                     
                     const updatedProposal = await db.get('SELECT status, payment_notes FROM proposals WHERE id=? AND tenant_id=?', [req.params.id, req.tenantId]);
                     if (updatedProposal && updatedProposal.status === 'APROVADO' && updatedProposal.payment_notes) {
@@ -537,7 +547,7 @@ async function start() {
             // flows: [{ title, value, due_date, note }]
             try {
                 const proposal = await db.get(
-                    'SELECT user_id, phase FROM proposals WHERE id=? AND tenant_id=?',
+                    'SELECT user_id, phase, status FROM proposals WHERE id=? AND tenant_id=?',
                     [req.params.id, req.tenantId]
                 );
                 if (!proposal) return res.status(404).json({ error: 'Proposta não encontrada' });
@@ -558,6 +568,17 @@ async function start() {
                          payment_methods=?, payment_notes=? WHERE id=? AND tenant_id=?`,
                         [newPhase, payment_methods || '', payment_notes || '', req.params.id, req.tenantId]
                     );
+
+                    // 1b. Log status change event if it changed
+                    if (proposal.status !== 'APROVADO') {
+                        const today = new Date();
+                        const eventDate = today.toISOString().split('T')[0];
+                        const eventTime = today.toTimeString().split(' ')[0].substring(0, 5);
+                        await db.run(
+                            'INSERT INTO proposal_events (tenant_id, proposal_id, event_date, event_time, title, description, type, event_status, monitor, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            [req.tenantId, req.params.id, eventDate, eventTime, 'Status alterado', `O status da proposta foi alterado de ${proposal.status || 'ABERTO'} para APROVADO.`, 'Anotacao', 'FECHADO', 0, req.user.id]
+                        );
+                    }
 
                     // 2. Delete existing CREDIT financial flows for this proposal (to keep only the latest approval)
                     await db.run(

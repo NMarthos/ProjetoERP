@@ -1550,6 +1550,7 @@ const Proposals = ({ user }) => {
     const [activeStatusTab, setActiveStatusTab] = useState('ABERTO');
     const [globalPartnerModalOpen, setGlobalPartnerModalOpen] = useState(false);
     const [partners, setPartners] = useState([]);
+    const [partnerModalData, setPartnerModalData] = useState({ show: false, partner: null, proposalAfterSave: null });
 
     useEffect(() => {
         fetchProposals();
@@ -1700,12 +1701,13 @@ const Proposals = ({ user }) => {
                                     <th>Criado em</th>
                                     <th>Status</th>
                                     <th>Último evento</th>
+                                    <th>Anexos</th>
                                     <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.length === 0 ? (
-                                    <tr><td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
+                                    <tr><td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum orçamento encontrado.</td></tr>
                                 ) : (
                                     filtered.map(p => {
                                         const cfg = statusConfig[p.status] || statusConfig.ABERTO;
@@ -1738,6 +1740,9 @@ const Proposals = ({ user }) => {
                                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>-</span>
                                                     )}
                                                 </td>
+                                                <td style={{ fontSize: '0.95rem', fontWeight: '600', paddingLeft: '10px' }}>
+                                                    {p.attachment_count || 0}
+                                                </td>
                                                 <td style={{ textAlign: 'right', paddingRight: '1.25rem' }}>
                                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                         {p.status === 'APROVADO' ? (
@@ -1764,20 +1769,18 @@ const Proposals = ({ user }) => {
                                                                 <button onClick={() => setEventModalData({ show: true, proposal: p })} title="Eventos / Agenda" style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}><CalendarPlus size={18} /></button>
                                                                 <button onClick={() => setPresentationModalData({ show: true, proposal: p })} title="Apresentação para Cliente" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><Monitor size={18} /></button>
                                                                 <button onClick={() => setBudgetModalData({ show: true, proposal: p })} title={canModify ? "Editar Orçamento" : "Ver Orçamento"} style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><FileText size={18} /></button>
+                                                                {(p.status === 'REVISAR' || p.status === 'REJEITADO') && (
+                                                                    <button onClick={() => handleReopenProposal(p.id)} title="Mover para Aberta" style={{ background: 'transparent', border: 'none', color: '#eab308', cursor: 'pointer' }}><RotateCcw size={18} /></button>
+                                                                )}
                                                                 {p.status === 'ABERTO' && (
                                                                     <button onClick={() => setCompletionModalData({ show: true, proposal: p })} title="Concluir Negociação / Aprovar" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer' }}><CheckCircle size={18} /></button>
                                                                 )}
                                                                 <button 
                                                                     onClick={() => setAttachmentsModalData({ show: true, proposal: p })} 
                                                                     title="Anexos da Proposta" 
-                                                                    style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                                                    style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer' }}
                                                                 >
                                                                     <Paperclip size={18} />
-                                                                    {p.attachment_count > 0 && (
-                                                                        <span style={{ fontSize: '0.72rem', fontWeight: 'bold', background: '#a78bfa', color: '#111', borderRadius: '10px', padding: '1px 5px', lineHeight: 1 }}>
-                                                                            {p.attachment_count}
-                                                                        </span>
-                                                                    )}
                                                                 </button>
                                                                 {canModify && (
                                                                     <>
@@ -1808,9 +1811,34 @@ const Proposals = ({ user }) => {
                     settings={settings}
                     onClose={() => setApprovedModalData({ show: false, proposal: null })}
                     onSave={fetchProposals}
-                    onGerarContrato={(p) => {
+                    onGerarContrato={async (p) => {
                         setApprovedModalData({ show: false, proposal: null });
-                        setContractModalData({ show: true, proposal: p });
+                        try {
+                            const res = await api.get('/partners');
+                            const pList = res.data;
+                            setPartners(pList);
+                            const pObj = pList.find(part => part.id === p.partner_id);
+                            
+                            const isPartnerValid = (partner) => {
+                                if (!partner) return false;
+                                const hasDoc = partner.document && partner.document.trim() !== '';
+                                const hasAddress = partner.address && partner.address.trim() !== '';
+                                const hasNum = partner.address_num && partner.address_num.trim() !== '';
+                                const hasCep = partner.address_cep && partner.address_cep.trim() !== '';
+                                const hasCity = partner.address_city && partner.address_city.trim() !== '';
+                                const hasNeighborhood = partner.address_neighborhood && partner.address_neighborhood.trim() !== '';
+                                return hasDoc && hasAddress && hasNum && hasCep && hasCity && hasNeighborhood;
+                            };
+                            
+                            if (isPartnerValid(pObj)) {
+                                setContractModalData({ show: true, proposal: p });
+                            } else {
+                                setPartnerModalData({ show: true, partner: pObj, proposalAfterSave: p });
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            setContractModalData({ show: true, proposal: p });
+                        }
                     }}
                 />
             )}
@@ -1819,6 +1847,22 @@ const Proposals = ({ user }) => {
                     proposal={contractModalData.proposal}
                     settings={settings}
                     onClose={() => setContractModalData({ show: false, proposal: null })}
+                />
+            )}
+            {partnerModalData.show && (
+                <PartnerModal
+                    partner={partnerModalData.partner}
+                    allPartners={partners}
+                    initialTab="dados"
+                    onClose={() => setPartnerModalData({ show: false, partner: null, proposalAfterSave: null })}
+                    onSave={async () => {
+                        await fetchPartners();
+                        const p = partnerModalData.proposalAfterSave;
+                        setPartnerModalData({ show: false, partner: null, proposalAfterSave: null });
+                        if (p) {
+                            setContractModalData({ show: true, proposal: p });
+                        }
+                    }}
                 />
             )}
             {completionModalData.show && <ProposalCompletionModal

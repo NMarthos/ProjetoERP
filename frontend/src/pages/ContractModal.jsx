@@ -290,9 +290,6 @@ ${content.innerHTML}
                         <div style={{ fontSize: '22pt', fontWeight: '900', letterSpacing: '2px', color: '#1a1a1a' }}>
                             {tenant?.name || 'EZATTUS PLANEJADOS'}
                         </div>
-                        <div style={{ fontSize: '11pt', color: '#555', marginTop: '2px' }}>
-                            CNPJ: {formatDoc(tenant?.cnpj)} &nbsp;|&nbsp; {tenantAddress}
-                        </div>
                         <div style={{ fontSize: '14pt', fontWeight: '700', marginTop: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                             Contrato de Compra e Venda de Móveis Sob Medida
                         </div>

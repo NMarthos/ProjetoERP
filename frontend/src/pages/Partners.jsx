@@ -5,10 +5,31 @@ import { maskPhone, maskDocument } from '../utils/masks';
 import { createPortal } from 'react-dom';
 
 // ── Componente de Modal (Popup) ──────────────────────────────────────────────────
+const maskCPF = (value) => {
+    if (!value) return '';
+    let v = value.replace(/\D/g, '');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    return v.substring(0, 14);
+};
+
+const maskCNPJ = (value) => {
+    if (!value) return '';
+    let v = value.replace(/\D/g, '');
+    v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+    v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+    v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+    v = v.replace(/(\d{4})(\d)/, '$1-$2');
+    return v.substring(0, 18);
+};
+
 export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClose, onSave }) => {
     const [form, setForm] = useState({
         name: '', type: 'CLIENTE', document: '', email: '', phone: '',
-        address: '', address_num: '', address_complement: '', address_neighborhood: '', address_cep: '', address_city: '', notes: '', referrer_id: '', commission_percentage: 0
+        address: '', address_num: '', address_complement: '', address_neighborhood: '', address_cep: '', address_city: '', notes: '', referrer_id: '', commission_percentage: 0,
+        person_type: 'F',
+        delivery_address: '', delivery_address_num: '', delivery_address_complement: '', delivery_address_cep: '', delivery_address_city: '', delivery_address_neighborhood: ''
     });
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState(initialTab === 'indicacao' ? 'dados' : initialTab);
@@ -20,7 +41,17 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
 
     useEffect(() => {
         if (partner) {
-            setForm(partner);
+            setForm(prev => ({
+                ...prev,
+                ...partner,
+                person_type: partner.person_type || 'F',
+                delivery_address: partner.delivery_address || '',
+                delivery_address_num: partner.delivery_address_num || '',
+                delivery_address_complement: partner.delivery_address_complement || '',
+                delivery_address_cep: partner.delivery_address_cep || '',
+                delivery_address_city: partner.delivery_address_city || '',
+                delivery_address_neighborhood: partner.delivery_address_neighborhood || ''
+            }));
             if (partner.id) {
                 api.get(`/referrals?clientId=${partner.id}`).then(res => {
                     if (res.data && res.data.length > 0) {
@@ -30,8 +61,6 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
             }
         }
     }, [partner]);
-
-
 
     const handleCepChange = async (e) => {
         let val = e.target.value.replace(/\D/g, '');
@@ -57,10 +86,33 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
         }
     };
 
+    const handleDeliveryCepChange = async (e) => {
+        let val = e.target.value.replace(/\D/g, '');
+        if (val.length > 5) val = val.substring(0, 5) + '-' + val.substring(5, 8);
+        setForm(prev => ({ ...prev, delivery_address_cep: val }));
+
+        if (val.replace(/\D/g, '').length === 8) {
+            try {
+                const res = await fetch(`https://viacep.com.br/ws/${val.replace(/\D/g, '')}/json/`);
+                const data = await res.json();
+                if (!data.erro) {
+                    setForm(prev => ({
+                        ...prev,
+                        delivery_address: data.logradouro || '',
+                        delivery_address_neighborhood: data.bairro || '',
+                        delivery_address_city: `${data.localidade} - ${data.uf}`,
+                    }));
+                    setTimeout(() => document.getElementById('delivery_address_num_input')?.focus(), 100);
+                }
+            } catch (err) {
+                console.error("Erro ao buscar CEP de entrega", err);
+            }
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        // Validação manual (pois o campo pode estar oculto em outra aba)
         if (!form.name || form.name.trim() === '') {
             setActiveTab('dados');
             setTimeout(() => alert('O campo Nome Completo / Razão Social é obrigatório.'), 100);
@@ -70,7 +122,7 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
         setSaving(true);
         try {
             let newId = null;
-            if (partner) {
+            if (partner.id) {
                 await api.put(`/partners/${partner.id}`, form);
             } else {
                 const res = await api.post('/partners', form);
@@ -90,7 +142,7 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
                 `}</style>
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 style={{ margin: 0 }}>{partner ? 'Editar Registro' : 'Novo Parceiro'}</h3>
+                    <h3 style={{ margin: 0 }}>{partner?.id ? 'Editar Registro' : 'Novo Parceiro'}</h3>
                     <button onClick={onClose} className="btn-icon"><X size={20} /></button>
                 </div>
 
@@ -108,7 +160,14 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
                         onClick={() => setActiveTab('localizacao')}
                         style={{ background: 'none', border: 'none', padding: '10px 0', cursor: 'pointer', color: activeTab === 'localizacao' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'localizacao' ? '2px solid var(--primary)' : 'none', fontWeight: '600' }}
                     >
-                        Localização
+                        End. Residencial
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={() => setActiveTab('entrega')}
+                        style={{ background: 'none', border: 'none', padding: '10px 0', cursor: 'pointer', color: activeTab === 'entrega' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: activeTab === 'entrega' ? '2px solid var(--primary)' : 'none', fontWeight: '600' }}
+                    >
+                        End. Entrega
                     </button>
                 </div>
 
@@ -132,8 +191,20 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
                                 </select>
                             </div>
                             <div>
-                                <label>CPF / CNPJ</label>
-                                <input value={form.document} onChange={e => setForm({...form, document: maskDocument(e.target.value)})} maxLength="18" />
+                                <label>Tipo de Pessoa</label>
+                                <select value={form.person_type} onChange={e => setForm({...form, person_type: e.target.value, document: ''})}>
+                                    <option value="F">Física</option>
+                                    <option value="J">Jurídica</option>
+                                </select>
+                            </div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label>{form.person_type === 'J' ? 'CNPJ *' : 'CPF *'}</label>
+                                <input 
+                                    value={form.document} 
+                                    onChange={e => setForm({...form, document: form.person_type === 'J' ? maskCNPJ(e.target.value) : maskCPF(e.target.value)})} 
+                                    maxLength={form.person_type === 'J' ? "18" : "14"} 
+                                    placeholder={form.person_type === 'J' ? "00.000.000/0000-00" : "000.000.000-00"}
+                                />
                             </div>
                             <div>
                                 <label>E-mail</label>
@@ -161,7 +232,7 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
                         </>
                     )}
 
-                    {/* Aba: Localização */}
+                    {/* Aba: End. Residencial */}
                     {activeTab === 'localizacao' && (
                         <>
                             <div>
@@ -193,7 +264,37 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
                         </>
                     )}
 
-
+                    {/* Aba: End. Entrega */}
+                    {activeTab === 'entrega' && (
+                        <>
+                            <div>
+                                <label>CEP de Entrega</label>
+                                <input value={form.delivery_address_cep} onChange={handleDeliveryCepChange} maxLength="9" placeholder="00000-000" />
+                            </div>
+                            <div>
+                                <label>Cidade de Entrega</label>
+                                <input value={form.delivery_address_city} onChange={e => setForm({...form, delivery_address_city: e.target.value})} />
+                            </div>
+                            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem' }}>
+                                <div style={{ flex: 2 }}>
+                                    <label>Endereço / Logradouro</label>
+                                    <input value={form.delivery_address} onChange={e => setForm({...form, delivery_address: e.target.value})} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label>Bairro</label>
+                                    <input value={form.delivery_address_neighborhood || ''} onChange={e => setForm({...form, delivery_address_neighborhood: e.target.value})} />
+                                </div>
+                            </div>
+                            <div>
+                                <label>Número</label>
+                                <input id="delivery_address_num_input" value={form.delivery_address_num} onChange={e => setForm({...form, delivery_address_num: e.target.value})} />
+                            </div>
+                            <div>
+                                <label>Complemento</label>
+                                <input value={form.delivery_address_complement} onChange={e => setForm({...form, delivery_address_complement: e.target.value})} />
+                            </div>
+                        </>
+                    )}
 
                     <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                         <button type="button" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
