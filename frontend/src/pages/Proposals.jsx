@@ -37,6 +37,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
     const [referrals, setReferrals] = useState([]);
     const [form, setForm] = useState({ 
         partner_id: '', 
+        title: '',
         description: '', 
         status: 'ABERTO', 
         phase: 'Comercial' 
@@ -50,6 +51,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
         if (proposal) {
             setForm({
                 partner_id: proposal.partner_id,
+                title: proposal.title || '',
                 description: proposal.description,
                 status: proposal.status,
                 phase: proposal.phase || 'Comercial'
@@ -126,6 +128,18 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
                     </div>
 
                     <div style={{ marginBottom: '1rem' }}>
+                        <label>Título da Proposta *</label>
+                        <input 
+                            required
+                            type="text"
+                            value={form.title}
+                            onChange={e => setForm({ ...form, title: e.target.value })}
+                            placeholder="Ex: Proposta Inicial de Cozinha"
+                            style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', border: '1px solid var(--border)', color: 'white' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '1rem' }}>
                         <label>Breve Descrição do Projeto</label>
                         <textarea 
                             required
@@ -166,7 +180,7 @@ const ProposalModal = ({ proposal, onClose, onSave }) => {
 
 // ── Modal de Anexos da Proposta ──────────────────────────────────────────────
 
-const AttachmentsModal = ({ proposal, onClose }) => {
+const AttachmentsModal = ({ proposal, onClose, onSave }) => {
     const [attachments, setAttachments] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState('');
@@ -198,6 +212,7 @@ const AttachmentsModal = ({ proposal, onClose }) => {
                 type: file.type
             });
             fetchAttachments();
+            if (onSave) onSave();
         } catch (err) {
             setError('Erro ao enviar arquivo: ' + (err.response?.data?.error || err.message));
         }
@@ -210,6 +225,7 @@ const AttachmentsModal = ({ proposal, onClose }) => {
         try {
             await api.delete(`/attachments/${id}`);
             fetchAttachments();
+            if (onSave) onSave();
         } catch (err) {
             setError('Erro ao remover anexo');
         }
@@ -823,6 +839,7 @@ const ApprovedProposalModal = ({ proposal, settings: settingsProp, onClose, onSa
                     <div>
                         <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', marginBottom: '4px' }}>Proposta Aprovada</div>
                         <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#fff' }}>{proposal.partner_name}</div>
+                        {proposal.title && <div style={{ fontSize: '1.05rem', fontWeight: '700', color: '#fff', marginTop: '2px' }}>{proposal.title}</div>}
                         <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>#{proposal.id} • {proposal.partner_phone || ''}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -1222,7 +1239,8 @@ const ProposalCompletionModal = ({ proposal, onClose, onSave, settings: settings
                         <div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Cliente</div>
                             <div style={{ fontWeight: '800', fontSize: '1.2rem', color: 'var(--primary)' }}>{proposal.partner_name}</div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{proposal.partner_phone}</div>
+                            {proposal.title && <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'white', marginTop: '2px' }}>{proposal.title}</div>}
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>{proposal.partner_phone}</div>
                         </div>
                         <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>Identificação</div>
@@ -1603,8 +1621,9 @@ const Proposals = ({ user }) => {
         'ARQUIVADO': { color: 'var(--text-muted)', icon: <Clock size={16} />, label: 'Arquivada' }
     };
 
-    const filtered = proposals.filter(p => {
+    let filtered = proposals.filter(p => {
         const matchesSearch = p.partner_name?.toLowerCase().includes(search.toLowerCase()) ||
+                             p.title?.toLowerCase().includes(search.toLowerCase()) ||
                              p.description?.toLowerCase().includes(search.toLowerCase()) ||
                              p.id.toString() === search;
         
@@ -1613,6 +1632,10 @@ const Proposals = ({ user }) => {
 
         return matchesSearch && p.status === activeStatusTab;
     });
+
+    if (activeStatusTab === 'ABERTO') {
+        filtered = [...filtered].sort((a, b) => b.id - a.id);
+    }
 
     const tabStyle = (status) => ({
         padding: '1rem 1.5rem',
@@ -1718,7 +1741,8 @@ const Proposals = ({ user }) => {
                                                 <td style={{ padding: '1.25rem', fontWeight: '700' }}>#{p.id}</td>
                                                 <td>
                                                     <div style={{ fontWeight: '600' }}>{p.partner_name}</div>
-                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.partner_phone}</div>
+                                                    {p.title && <div style={{ fontSize: '0.85rem', color: 'white', fontWeight: '600', marginTop: '2px' }}>{p.title}</div>}
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{p.partner_phone}</div>
                                                 </td>
                                                 <td style={{ fontSize: '0.85rem' }}>
                                                     {new Date(p.created_at).toLocaleDateString('pt-BR')}
@@ -1803,7 +1827,7 @@ const Proposals = ({ user }) => {
             </div>
 
             {modalOpen && <ProposalModal proposal={selectedProposal} onClose={() => setModalOpen(false)} onSave={() => { setModalOpen(false); fetchProposals(); }} />}
-            {attachmentsModalData.show && <AttachmentsModal proposal={attachmentsModalData.proposal} onClose={() => setAttachmentsModalData({ show: false, proposal: null })} />}
+            {attachmentsModalData.show && <AttachmentsModal proposal={attachmentsModalData.proposal} onClose={() => { setAttachmentsModalData({ show: false, proposal: null }); fetchProposals(); }} onSave={fetchProposals} />}
             {eventModalData.show && <EventModal proposal={eventModalData.proposal} onClose={() => { setEventModalData({ show: false, proposal: null }); fetchProposals(); }} />}
             {approvedModalData.show && (
                 <ApprovedProposalModal

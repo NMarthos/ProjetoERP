@@ -122,7 +122,7 @@ export const PartnerModal = ({ partner, allPartners, initialTab = 'dados', onClo
         setSaving(true);
         try {
             let newId = null;
-            if (partner.id) {
+            if (partner?.id) {
                 await api.put(`/partners/${partner.id}`, form);
             } else {
                 const res = await api.post('/partners', form);

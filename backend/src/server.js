@@ -108,13 +108,13 @@ async function start() {
         });
 
         app.post('/api/partners', authMiddleware, async (req, res) => {
-            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id } = req.body;
+            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id, person_type, delivery_address, delivery_address_num, delivery_address_complement, delivery_address_cep, delivery_address_city, delivery_address_neighborhood } = req.body;
             try {
                 await db.run('BEGIN TRANSACTION');
                 const result = await db.run(
-                    `INSERT INTO partners (tenant_id, name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [req.tenantId, name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0]
+                    `INSERT INTO partners (tenant_id, name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, person_type, delivery_address, delivery_address_num, delivery_address_complement, delivery_address_cep, delivery_address_city, delivery_address_neighborhood) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [req.tenantId, name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0, person_type || 'F', delivery_address || null, delivery_address_num || null, delivery_address_complement || null, delivery_address_cep || null, delivery_address_city || null, delivery_address_neighborhood || null]
                 );
                 
                 if (referrer_id) {
@@ -132,13 +132,13 @@ async function start() {
         });
 
         app.put('/api/partners/:id', authMiddleware, async (req, res) => {
-            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id } = req.body;
+            const { name, type, document, email, phone, address, address_num, address_complement, address_neighborhood, address_cep, address_city, notes, commission_percentage, referrer_id, person_type, delivery_address, delivery_address_num, delivery_address_complement, delivery_address_cep, delivery_address_city, delivery_address_neighborhood } = req.body;
             try {
                 await db.run('BEGIN TRANSACTION');
                 await db.run(
-                    `UPDATE partners SET name=?, type=?, document=?, email=?, phone=?, address=?, address_num=?, address_complement=?, address_neighborhood=?, address_cep=?, address_city=?, notes=?, commission_percentage=?
+                    `UPDATE partners SET name=?, type=?, document=?, email=?, phone=?, address=?, address_num=?, address_complement=?, address_neighborhood=?, address_cep=?, address_city=?, notes=?, commission_percentage=?, person_type=?, delivery_address=?, delivery_address_num=?, delivery_address_complement=?, delivery_address_cep=?, delivery_address_city=?, delivery_address_neighborhood=?
                     WHERE id=? AND tenant_id=?`,
-                    [name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0, req.params.id, req.tenantId]
+                    [name || null, type || 'CLIENTE', document || null, email || null, phone || null, address || null, address_num || null, address_complement || null, address_neighborhood || null, address_cep || null, address_city || null, notes || null, commission_percentage || 0, person_type || 'F', delivery_address || null, delivery_address_num || null, delivery_address_complement || null, delivery_address_cep || null, delivery_address_city || null, delivery_address_neighborhood || null, req.params.id, req.tenantId]
                 );
 
                 // Update referral
@@ -386,11 +386,11 @@ async function start() {
         });
 
         app.post('/api/proposals', authMiddleware, async (req, res) => {
-            const { partner_id, description, value, status, phase } = req.body;
+            const { partner_id, description, value, status, phase, title } = req.body;
             const newPhase = phase || '1-Comercial';
             try {
-                const result = await db.run('INSERT INTO proposals (tenant_id, partner_id, user_id, description, value, status, phase, phase_date) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
-                    [req.tenantId, partner_id, req.user.id, description, value || 0, status || 'ABERTO', newPhase]);
+                const result = await db.run('INSERT INTO proposals (tenant_id, partner_id, user_id, description, value, status, phase, phase_date, title) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)',
+                    [req.tenantId, partner_id, req.user.id, description, value || 0, status || 'ABERTO', newPhase, title || null]);
 
                 await db.run('INSERT INTO proposal_history (tenant_id, proposal_id, old_phase, new_phase, user_id) VALUES (?, ?, ?, ?, ?)',
                     [req.tenantId, result.lastID, null, newPhase, req.user.id]);
@@ -449,7 +449,7 @@ async function start() {
                 let setClauses = [];
                 let params = [];
                 
-                const fields = ['description', 'value', 'status', 'partner_id', 'budget_data', 'fabrication_days', 'assembly_days', 'payment_methods', 'payment_notes', 'pricing_snapshot', 'delivery_deadline', 'assembly_deadline'];
+                const fields = ['title', 'description', 'value', 'status', 'partner_id', 'budget_data', 'fabrication_days', 'assembly_days', 'payment_methods', 'payment_notes', 'pricing_snapshot', 'delivery_deadline', 'assembly_deadline'];
                 fields.forEach(field => {
                     if (body[field] !== undefined) {
                         setClauses.push(`${field}=?`);

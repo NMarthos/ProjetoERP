@@ -312,7 +312,8 @@ async function initializeDatabase(db) {
         { table: 'partners', column: 'delivery_address_complement', type: 'TEXT' },
         { table: 'partners', column: 'delivery_address_cep', type: 'TEXT' },
         { table: 'partners', column: 'delivery_address_city', type: 'TEXT' },
-        { table: 'partners', column: 'delivery_address_neighborhood', type: 'TEXT' }
+        { table: 'partners', column: 'delivery_address_neighborhood', type: 'TEXT' },
+        { table: 'proposals', column: 'title', type: 'TEXT' }
     ];
 
     for (const m of migrations) {
