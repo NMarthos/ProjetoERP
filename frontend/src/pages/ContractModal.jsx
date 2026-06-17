@@ -52,6 +52,9 @@ const ContractModal = ({ proposal, settings: settingsProp, onClose }) => {
     const [partner, setPartner] = useState(null);
     const [tenant, setTenant] = useState(null);
     const [financialFlows, setFinancialFlows] = useState([]);
+    const [fullProposal, setFullProposal] = useState(proposal);
+    const [myProfile, setMyProfile] = useState(null);
+    const [applySignature, setApplySignature] = useState(false);
     const [loading, setLoading] = useState(true);
     const [contractNum, setContractNum] = useState('');
     const printRef = useRef(null);
@@ -61,14 +64,18 @@ const ContractModal = ({ proposal, settings: settingsProp, onClose }) => {
         const load = async () => {
             setLoading(true);
             try {
-                const [partnerRes, settingsRes, flowsRes] = await Promise.all([
+                const [partnerRes, settingsRes, flowsRes, proposalRes, profileRes] = await Promise.all([
                     api.get(`/partners`),
                     api.get('/settings'),
-                    api.get(`/financial-flows?proposal_id=${proposal.id}`).catch(() => ({ data: [] }))
+                    api.get(`/financial-flows?proposal_id=${proposal.id}`).catch(() => ({ data: [] })),
+                    api.get(`/proposals/${proposal.id}`).catch(() => ({ data: proposal })),
+                    api.get('/profile').catch(() => null)
                 ]);
                 const found = partnerRes.data.find(p => p.id === proposal.partner_id) || null;
                 setPartner(found);
                 setTenant(settingsRes.data?.tenant || null);
+                setFullProposal(proposalRes.data || proposal);
+                if (profileRes) setMyProfile(profileRes.data);
 
                 // Filter flows by proposal (API may not support query param - filter client-side)
                 const allFlows = Array.isArray(flowsRes.data) ? flowsRes.data : [];
@@ -259,7 +266,18 @@ ${content.innerHTML}
                 <div style={{ color: '#fff', fontWeight: '700', fontSize: '1rem' }}>
                     📄 Contrato #{contractNum}
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    {myProfile?.signature_url && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff', fontSize: '0.88rem', cursor: 'pointer', userSelect: 'none' }}>
+                            <input 
+                                type="checkbox" 
+                                checked={applySignature} 
+                                onChange={e => setApplySignature(e.target.checked)} 
+                                style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                            />
+                            Assinar Documento
+                        </label>
+                    )}
                     <button
                         onClick={handlePrint}
                         style={{ padding: '10px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: 'pointer', fontWeight: '800', fontSize: '0.9rem', boxShadow: '0 4px 12px rgba(16,185,129,0.4)' }}
@@ -569,21 +587,26 @@ ${content.innerHTML}
 
                     {/* Signatures */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '50px', marginBottom: '40px' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ borderTop: '1.5px solid #1a1a1a', paddingTop: '8px' }}>
+                        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', minHeight: '120px' }}>
+                            <div style={{ borderTop: '1.5px solid #1a1a1a', paddingTop: '8px', width: '100%' }}>
                                 <div style={{ fontWeight: '700', fontSize: '10pt' }}>{partner?.name || proposal.partner_name || 'CONTRATANTE'}</div>
                                 <div style={{ fontSize: '9pt', color: '#555' }}>CPF: {formatDoc(partner?.document) || '—'}</div>
                                 <div style={{ fontSize: '9pt', color: '#555', marginTop: '2px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contratante</div>
                             </div>
                         </div>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ borderTop: '1.5px solid #1a1a1a', paddingTop: '8px' }}>
+                        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', minHeight: '120px' }}>
+                            {applySignature && myProfile?.signature_url && (
+                                <img src={myProfile.signature_url} alt="Assinatura" style={{ maxHeight: '70px', maxWidth: '250px', objectFit: 'contain', marginBottom: '5px' }} />
+                            )}
+                            <div style={{ borderTop: '1.5px solid #1a1a1a', paddingTop: '8px', width: '100%' }}>
                                 <div style={{ fontWeight: '700', fontSize: '10pt' }}>{tenant?.name || 'CONTRATADO'}</div>
                                 <div style={{ fontSize: '9pt', color: '#555' }}>CNPJ: {formatDoc(tenant?.cnpj) || '—'}</div>
                                 <div style={{ fontSize: '9pt', color: '#555', marginTop: '2px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contratado</div>
                             </div>
                         </div>
+
                     </div>
+
 
                     {/* Witnesses */}
                     <div>

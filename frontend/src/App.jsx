@@ -10,6 +10,8 @@ import Parameters from './pages/Parameters';
 import PaymentMethods from './pages/PaymentMethods';
 import CashFlow from './pages/CashFlow';
 import OrdemProducao from './pages/OrdemProducao';
+import Receipts from './pages/Receipts';
+
 import './index.css';
 
 function App() {
@@ -92,9 +94,12 @@ function App() {
                     <CashFlow />
                 ) : currentView === 'M_ORDERS' ? (
                     <OrdemProducao />
+                ) : currentView === 'M_RECEIPT' ? (
+                    <Receipts />
                 ) : (
                     <div className="glass card">Selecione um módulo no menu lateral.</div>
                 )}
+
             </main>
         </div>
     );

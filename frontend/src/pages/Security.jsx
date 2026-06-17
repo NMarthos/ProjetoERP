@@ -12,7 +12,9 @@ const Security = () => {
     const [tenantForm, setTenantForm] = useState(null);
     const [userForm, setUserForm] = useState(null);
     const [uploadingLogo, setUploadingLogo] = useState(false);
+    const [uploadingSignature, setUploadingSignature] = useState(false);
     const fileInputRef = useRef(null);
+    const signatureFileInputRef = useRef(null);
 
     const fetchData = async () => {
         setLoading(true);
@@ -50,6 +52,26 @@ const Security = () => {
             alert('Erro no upload da logomarca.');
         } finally {
             setUploadingLogo(false);
+        }
+    };
+
+    const handleSignatureUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploadingSignature(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setUserForm(prev => ({ ...prev, signature_url: response.data.url }));
+        } catch (err) {
+            alert('Erro no upload da assinatura.');
+        } finally {
+            setUploadingSignature(false);
         }
     };
 
@@ -298,7 +320,7 @@ const Security = () => {
                                     <Users size={20} color="#10b981" />
                                     <h3 style={{ margin: 0 }}>Usuários de {selectedTenant.name}</h3>
                                 </div>
-                                <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => setUserForm({ tenant_id: selectedTenant.id, name: '', email: '', phone: '', password: '', role: 'USER', active: 1 })}>
+                                <button className="btn-premium" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => setUserForm({ tenant_id: selectedTenant.id, name: '', email: '', phone: '', password: '', role: 'USER', active: 1, signature_url: '' })}>
                                     <Plus size={16} /> Novo Usuário
                                 </button>
                             </div>
@@ -332,6 +354,50 @@ const Security = () => {
                                         <label>{userForm.id ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha de Acesso'}</label>
                                         <input type="password" value={userForm.password || ''} onChange={e => setUserForm({...userForm, password: e.target.value})} required={!userForm.id} />
                                     </div>
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <label>Imagem da Assinatura</label>
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                            <input 
+                                                value={userForm.signature_url || ''} 
+                                                onChange={e => setUserForm({...userForm, signature_url: e.target.value})} 
+                                                placeholder="URL ou Upload..." 
+                                                style={{ marginBottom: 0 }}
+                                            />
+                                            <input 
+                                                type="file" 
+                                                ref={signatureFileInputRef} 
+                                                style={{ display: 'none' }} 
+                                                onChange={handleSignatureUpload} 
+                                                accept="image/*"
+                                            />
+                                            <button 
+                                                type="button" 
+                                                onClick={() => signatureFileInputRef.current?.click()}
+                                                className="btn-premium"
+                                                style={{ padding: '8px', minWidth: '40px', background: '#10b981' }}
+                                                disabled={uploadingSignature}
+                                            >
+                                                {uploadingSignature ? '...' : <Camera size={18} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {userForm.signature_url && (
+                                        <div style={{ gridColumn: '1 / -1', textAlign: 'center', position: 'relative', marginTop: '5px' }}>
+                                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prévia da Assinatura:</p>
+                                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                <img src={userForm.signature_url} alt="Signature Preview" style={{ maxWidth: '200px', maxHeight: '60px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff', padding: '5px' }} />
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => setUserForm({...userForm, signature_url: ''})}
+                                                    style={{ position: 'absolute', top: '-10px', right: '-10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {userForm.id && (
                                         <div style={{ gridColumn: '1 / -1' }}>
                                             <label>Status</label>
@@ -346,6 +412,7 @@ const Security = () => {
                                         <button type="button" onClick={() => setUserForm(null)} style={{ flex: 1 }}>Cancelar</button>
                                         <button type="submit" className="btn-premium" style={{ flex: 2, background: '#10b981' }}>Salvar Usuário</button>
                                     </div>
+
                                 </form>
                             )}
 

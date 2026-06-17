@@ -83,11 +83,22 @@ async function start() {
                         phone: user.phone || null,
                         tenantId: user.tenant_id, 
                         role: user.role || 'ADMIN',
-                        logo_url: user.logo_url
+                        logo_url: user.logo_url,
+                        signature_url: user.signature_url || null
                     } 
                 });
             } catch (err) {
                 res.status(500).json({ error: 'Erro interno no servidor' });
+            }
+        });
+
+        app.get('/api/profile', authMiddleware, async (req, res) => {
+            try {
+                const user = await db.get('SELECT id, tenant_id, name, email, phone, role, signature_url FROM users WHERE id = ?', [req.user.id]);
+                if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+                res.json(user);
+            } catch (err) {
+                res.status(500).json({ error: 'Erro ao buscar perfil' });
             }
         });
 
@@ -675,10 +686,12 @@ async function start() {
                 const rows = await db.all(`
                     SELECT ff.*,
                            p.description as proposal_description,
-                           pt.name as partner_name
+                           COALESCE(pt.name, pt_direct.name) as partner_name,
+                           COALESCE(pt.id, pt_direct.id) as partner_id
                     FROM financial_flows ff
                     LEFT JOIN proposals p  ON ff.proposal_id = p.id
                     LEFT JOIN partners pt ON p.partner_id = pt.id
+                    LEFT JOIN partners pt_direct ON ff.partner_id = pt_direct.id
                     WHERE ${conditions.join(' AND ')}
                     ORDER BY ff.due_date ASC, ff.id ASC
                 `, params);
@@ -690,13 +703,13 @@ async function start() {
         });
 
         app.post('/api/financial-flows', authMiddleware, async (req, res) => {
-            const { type, category, title, description, value, due_date, payment_date, note, proposal_id } = req.body;
+            const { type, category, title, description, value, due_date, payment_date, note, proposal_id, partner_id } = req.body;
             if (!title || !due_date || !value) return res.status(400).json({ error: 'Campos obrigatórios: título, data de vencimento e valor.' });
             try {
                 const result = await db.run(
-                    `INSERT INTO financial_flows (tenant_id, proposal_id, type, category, title, description, value, due_date, payment_date, note, status)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EM_ABERTO')`,
-                    [req.tenantId, proposal_id || null, type || 'CREDITO', category || null, title, description || null, value, due_date, payment_date || null, note || null]
+                    `INSERT INTO financial_flows (tenant_id, proposal_id, partner_id, type, category, title, description, value, due_date, payment_date, note, status)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EM_ABERTO')`,
+                    [req.tenantId, proposal_id || null, partner_id || null, type || 'CREDITO', category || null, title, description || null, value, due_date, payment_date || null, note || null]
                 );
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
@@ -705,12 +718,12 @@ async function start() {
         });
 
         app.put('/api/financial-flows/:id', authMiddleware, async (req, res) => {
-            const { type, category, title, description, value, due_date, payment_date, note, status } = req.body;
+            const { type, category, title, description, value, due_date, payment_date, note, status, partner_id } = req.body;
             try {
                 await db.run(
-                    `UPDATE financial_flows SET type=?, category=?, title=?, description=?, value=?, due_date=?, payment_date=?, note=?, status=?
+                    `UPDATE financial_flows SET type=?, category=?, title=?, description=?, value=?, due_date=?, payment_date=?, note=?, status=?, partner_id=?
                      WHERE id=? AND tenant_id=?`,
-                    [type, category || null, title, description || null, value, due_date, payment_date || null, note || null, status, req.params.id, req.tenantId]
+                    [type, category || null, title, description || null, value, due_date, payment_date || null, note || null, status, partner_id || null, req.params.id, req.tenantId]
                 );
                 res.json({ ok: true });
             } catch (err) {
@@ -1237,7 +1250,7 @@ async function start() {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
             try {
                 const users = await db.all(`
-                    SELECT u.id, u.tenant_id, u.name, u.email, u.phone, u.active, u.role, t.name as tenant_name 
+                    SELECT u.id, u.tenant_id, u.name, u.email, u.phone, u.active, u.role, u.signature_url, t.name as tenant_name 
                     FROM users u
                     LEFT JOIN tenants t ON u.tenant_id = t.id
                     ORDER BY u.name ASC
@@ -1250,12 +1263,12 @@ async function start() {
 
         app.post('/api/security/users', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { tenant_id, name, email, password, role, phone } = req.body;
+            const { tenant_id, name, email, password, role, phone, signature_url } = req.body;
             try {
                 const hashedPassword = await bcrypt.hash(password, 10);
                 const result = await db.run(
-                    'INSERT INTO users (tenant_id, name, email, password, role, phone) VALUES (?, ?, ?, ?, ?, ?)',
-                    [tenant_id, name, email, hashedPassword, role || 'USER', phone || null]
+                    'INSERT INTO users (tenant_id, name, email, password, role, phone, signature_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [tenant_id, name, email, hashedPassword, role || 'USER', phone || null, signature_url || null]
                 );
                 res.status(201).json({ id: result.lastID });
             } catch (err) {
@@ -1331,18 +1344,18 @@ async function start() {
 
         app.put('/api/security/users/:id', authMiddleware, async (req, res) => {
             if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Acesso negado' });
-            const { tenant_id, name, email, password, role, active, phone } = req.body;
+            const { tenant_id, name, email, password, role, active, phone, signature_url } = req.body;
             try {
                 if (password && password.trim() !== '') {
                     const hashedPassword = await bcrypt.hash(password, 10);
                     await db.run(
-                        'UPDATE users SET tenant_id=?, name=?, email=?, password=?, role=?, active=?, phone=? WHERE id=?',
-                        [tenant_id, name, email, hashedPassword, role, active, phone || null, req.params.id]
+                        'UPDATE users SET tenant_id=?, name=?, email=?, password=?, role=?, active=?, phone=?, signature_url=? WHERE id=?',
+                        [tenant_id, name, email, hashedPassword, role, active, phone || null, signature_url || null, req.params.id]
                     );
                 } else {
                     await db.run(
-                        'UPDATE users SET tenant_id=?, name=?, email=?, role=?, active=?, phone=? WHERE id=?',
-                        [tenant_id, name, email, role, active, phone || null, req.params.id]
+                        'UPDATE users SET tenant_id=?, name=?, email=?, role=?, active=?, phone=?, signature_url=? WHERE id=?',
+                        [tenant_id, name, email, role, active, phone || null, signature_url || null, req.params.id]
                     );
                 }
                 res.json({ ok: true });

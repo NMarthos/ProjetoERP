@@ -280,6 +280,7 @@ async function initializeDatabase(db) {
         { table: 'production_orders', column: 'end_date', type: 'DATETIME' },
         { table: 'users', column: 'role', type: 'TEXT DEFAULT "USER"' },
         { table: 'users', column: 'phone', type: 'TEXT' },
+        { table: 'users', column: 'signature_url', type: 'TEXT' },
         { table: 'proposals', column: 'fabrication_days', type: 'INTEGER DEFAULT 0' },
         { table: 'proposals', column: 'assembly_days', type: 'INTEGER DEFAULT 0' },
         { table: 'proposals', column: 'payment_methods', type: 'TEXT' },
@@ -313,7 +314,8 @@ async function initializeDatabase(db) {
         { table: 'partners', column: 'delivery_address_cep', type: 'TEXT' },
         { table: 'partners', column: 'delivery_address_city', type: 'TEXT' },
         { table: 'partners', column: 'delivery_address_neighborhood', type: 'TEXT' },
-        { table: 'proposals', column: 'title', type: 'TEXT' }
+        { table: 'proposals', column: 'title', type: 'TEXT' },
+        { table: 'financial_flows', column: 'partner_id', type: 'INTEGER REFERENCES partners(id) ON DELETE SET NULL' }
     ];
 
     for (const m of migrations) {

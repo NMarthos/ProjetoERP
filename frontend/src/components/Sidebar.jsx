@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2, FileText, TrendingUp, ClipboardList } from 'lucide-react';
-
+import { LayoutDashboard, Users, Factory, Wallet, Settings, LogOut, ChevronDown, ChevronRight, UserPlus, Package, Shield, Building2, FileText, TrendingUp, ClipboardList, Receipt } from 'lucide-react';
 const Sidebar = ({ user, onLogout, setView, currentView }) => {
     const [geralOpen, setGeralOpen] = useState(true);
     const [comercialOpen, setComercialOpen] = useState(true);
@@ -51,6 +50,7 @@ const Sidebar = ({ user, onLogout, setView, currentView }) => {
             toggle: () => setAdminOpen(!adminOpen),
             subItems: [
                 { icon: <TrendingUp size={18} />, label: 'Fluxo de Caixa', module: 'M_CASHFLOW' },
+                { icon: <Receipt size={18} />, label: 'Recibos Avulsos', module: 'M_RECEIPT' }
             ]
         },
     ];

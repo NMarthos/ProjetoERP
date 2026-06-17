@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { createPortal } from 'react-dom';
-import { Search, RefreshCw, Plus, Pencil, Trash2, X, TrendingUp, TrendingDown, DollarSign, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Search, RefreshCw, Plus, Pencil, Trash2, X, TrendingUp, TrendingDown, DollarSign, Clock, CheckCircle, XCircle, Receipt } from 'lucide-react';
+import ReceiptModal from './ReceiptModal';
 
 const maskCurrency = (v) => {
     if (!v && v !== 0) return 'R$ 0,00';
@@ -178,6 +179,7 @@ const CashFlow = () => {
     const [search, setSearch]       = useState('');
     const [modal, setModal]         = useState(null); // null | { initial }
     const [updatingId, setUpdatingId] = useState(null);
+    const [receiptModal, setReceiptModal] = useState(null);
 
     const fetchFlows = useCallback(async () => {
         setLoading(true);
@@ -373,6 +375,9 @@ const CashFlow = () => {
                                             </td>
                                             <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center' }}>
                                                 <div style={{ display: 'flex', gap: '4px' }}>
+                                                    {isCredit && (
+                                                        <button className="btn-icon" title="Gerar Recibo" onClick={() => setReceiptModal(row)} style={{ color: '#10b981' }}><Receipt size={15} /></button>
+                                                    )}
                                                     <button className="btn-icon" title="Editar" onClick={() => setModal({ initial: { ...row, value: maskCurrency(row.value) } })} style={{ color: 'var(--text-muted)' }}><Pencil size={15} /></button>
                                                     <button className="btn-icon" title="Excluir" onClick={() => handleDelete(row.id)} style={{ color: '#ef4444' }}><Trash2 size={15} /></button>
                                                 </div>
@@ -404,6 +409,13 @@ const CashFlow = () => {
                     initial={modal.initial}
                     onClose={() => setModal(null)}
                     onSaved={() => { setModal(null); fetchFlows(); }}
+                />
+            )}
+
+            {receiptModal && (
+                <ReceiptModal
+                    flow={receiptModal}
+                    onClose={() => setReceiptModal(null)}
                 />
             )}
         </div>
